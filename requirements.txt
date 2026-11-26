@@ -1,0 +1,16 @@
+fastapi==0.162.5
+faster-whisper==1.1.1
+httpx==0.28.1
+librosa==0.10.2.post1
+numpy==2.2.6
+psycopg==3.3.9
+psycopg-binary==3.3.9
+python-multipart==0.0.32
+sherpa-onnx==2.0.1
+soundfile==0.14.0
+SQLAlchemy==2.0.57
+static-ffmpeg==2.13
+uvicorn==0.54.0
+youtube-transcript-api==1.0.3
+yt-dlp==2026.10.21
+pillow==11.3.0
