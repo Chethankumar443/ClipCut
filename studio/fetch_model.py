@@ -25,8 +25,6 @@ _SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
 MODELS = {
     "en": ("English", config.ASR_MODEL_NAME, _SHERPA + config.ASR_MODEL_NAME + ".tar.bz2", 480,
            "Parakeet TDT 0.6b v2 by NVIDIA (CC-BY-4.0)", ""),
-    "ar": ("Arabic", config.ASR_MODEL_AR, config.ASR_MODEL_AR_URL, 107,
-           "FastConformer Arabic by NVIDIA (CC-BY-4.0)", config.ASR_MODEL_AR_SHA256),
 }
 DEFAULT = "en"
 WAIT = 60   # seconds of silence from the connection before giving up, so a stalled download cannot hang everything

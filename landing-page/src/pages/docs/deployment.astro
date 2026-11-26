@@ -1,0 +1,43 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Docker & Production Deployment"
+  description="Deploy ClipCut on a Linux server with Docker Compose, PostgreSQL, Caddy HTTPS, Nginx, or Traefik."
+  currentPath="/docs/deployment"
+  section="Deployment"
+>
+  <h2>Three-Container Docker Stack</h2>
+  <p>
+    The included <code>docker-compose.yml</code> runs the ClipCut app, PostgreSQL, and Caddy for
+    automatic HTTPS certificates. Recommended server sizing for multi-user workloads:{" "}
+    <strong>8+ CPU cores, 16 GB RAM, and 200+ GB disk</strong>.
+  </p>
+  <pre><code>cp .env.example .env
+# Set CLIPCUT_DOMAIN, POSTGRES_PASSWORD, and COMPOSE_PROFILES=own-https
+docker compose up -d --build</code></pre>
+
+  <h2>Promote an Admin User</h2>
+  <p>
+    With Docker, user accounts are enabled automatically (<code>CLIPCUT_ACCOUNTS=1</code>). After
+    signing up, grant admin access from the server CLI:
+  </p>
+  <pre><code>docker compose exec app python -m studio.admin grant you@example.com</code></pre>
+
+  <h2>Reverse Proxies &amp; OAuth</h2>
+  <ul>
+    <li>
+      <strong>Existing Nginx or Traefik:</strong> Omit <code>COMPOSE_PROFILES=own-https</code> and
+      use <code>deploy/nginx-clipcut.conf</code> or <code>deploy/docker-compose.traefik.yml</code>.
+    </li>
+    <li>
+      <strong>Connected Apps:</strong> Register OAuth credentials for YouTube Data API v3,
+      Instagram (Creator/Business), and TikTok Content Posting API in <strong>Settings → Connected apps</strong>.
+    </li>
+    <li>
+      <strong>GPU ASR Worker:</strong> Offload transcription to a GPU host using{" "}
+      <code>deploy/gpu/docker-compose.yml</code> and <code>studio/asr_worker.py</code>.
+    </li>
+  </ul>
+</DocsLayout>

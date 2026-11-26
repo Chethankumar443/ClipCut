@@ -1,0 +1,35 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Gaming Mode"
+  description="Automatic game detection, unique chatter spike counting, and webcam framing for gaming streams."
+  currentPath="/docs/gaming-mode"
+  section="Gaming Mode"
+>
+  <h2>1. Automatic Game Recognition</h2>
+  <p>
+    <code>studio/games.py</code> identifies 23+ games—including GTA VI, GTA V, Fortnite, Minecraft,
+    Valorant, Elden Ring, Palworld, Helldivers 2, Marvel Rivals, and Rocket League—from the
+    creator's Setup, live stream title, or video filename.
+  </p>
+  <p>
+    When a game is detected, <code>GAME_RULES</code> in <code>studio/brain.py</code> instructs the AI
+    to look for plays, clutches, deaths, jump scares, glitches, and reactions, and attaches
+    game-specific hashtags automatically.
+  </p>
+
+  <h2>2. Counting Unique People in Chat</h2>
+  <p>
+    Instead of letting one viewer spamming 50 emotes trigger a false hype spike,{" "}
+    <code>studio/live.py</code> tracks unique chatters so chat spikes reflect real audience
+    reactions.
+  </p>
+
+  <h2>3. Facecam Detection</h2>
+  <p>
+    <code>studio/facecam.py</code> locates static webcam overlays in gaming VODs and streams so
+    vertical <code>9:16</code> exports can frame both gameplay and streamer reaction cleanly.
+  </p>
+</DocsLayout>

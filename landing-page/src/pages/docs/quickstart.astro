@@ -1,0 +1,42 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Quick Start"
+  description="Run ClipCut on your own computer in under two minutes with Python 3.10+."
+  currentPath="/docs/quickstart"
+  section="Quick Start"
+>
+  <h2>1. Prerequisites</h2>
+  <ul>
+    <li><strong>Python 3.10+</strong></li>
+    <li>
+      <strong>FFmpeg &amp; FFprobe</strong> — bundled automatically via <code>static-ffmpeg</code>{" "}
+      in <code>requirements.txt</code>, or install system-wide with{" "}
+      <code>winget install Gyan.FFmpeg</code> / <code>brew install ffmpeg</code>.
+    </li>
+  </ul>
+
+  <h2>2. Clone &amp; Install</h2>
+  <p>
+    On Windows, install into a short path such as <code>C:\clipcut</code> to avoid Windows'
+    260-character path limit when loading native speech libraries.
+  </p>
+  <pre><code>git clone https://github.com/Chethankumar443/ClipCut.git C:\clipcut
+cd C:\clipcut
+pip install -r requirements.txt</code></pre>
+
+  <h2>3. Configure &amp; Run</h2>
+  <pre><code>cp .env.example .env
+python -m studio.server</code></pre>
+  <p>
+    Open <code>http://127.0.0.1:8765</code> in your browser. By default (<code>CLIPCUT_ACCOUNTS=0</code>),
+    ClipCut opens directly into the dashboard without requiring login. Add your AI key under{" "}
+    <strong>Settings → AI</strong>.
+  </p>
+
+  <h2>4. Pre-download Speech Models &amp; Run Tests</h2>
+  <pre><code>python -m studio.fetch_model
+python tests/run.py</code></pre>
+</DocsLayout>

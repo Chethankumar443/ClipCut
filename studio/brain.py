@@ -303,20 +303,54 @@ def _snap(clip, lines, words, min_len, max_len, duration):
     return round(max(0.0, s - 0.15), 2), round(min(duration, e + tail), 2)
 
 
-def fallback_by_loudness(db, words, n, max_len, duration):
-    """No AI available: take the loudest stretches that contain speech."""
+def _auto_hook(words, s: float, e: float, fallback: str = "DON'T MISS THIS") -> str:
+    """Create a punchy 3-6 word hook from the spoken words inside [s, e] when none was provided."""
+    seg = [str(w.get("w", "")).strip() for w in words if s <= w.get("s", -1) <= e and str(w.get("w", "")).strip()]
+    if len(seg) < 3:
+        return fallback
+    # Prefer a short expressive phrase near the start or peak of the clip
+    phrase = " ".join(seg[:6]).strip(".,!?;:\"'()[]")
+    if len(phrase) > 42:
+        phrase = " ".join(seg[:4]).strip(".,!?;:\"'()[]")
+    return (phrase.upper() if phrase else fallback)[:48]
+
+
+def fallback_by_loudness(db, words, n, max_len, duration, energy=None, heatmap=None):
+    """Signal-driven clip finder when AI is unavailable: prioritizes YouTube Most-Replayed trending
+    sectors, then microphone vocal energy spikes, then loudness, and auto-generates a genuine hook."""
     z = loud_zscore(db)
-    picks, order = [], np.argsort(-z)
+    ez = loud_zscore(energy) if energy is not None and len(energy) else None
+    has_heat = heatmap is not None and len(heatmap) and float(np.max(heatmap)) > 0
+    # Align all signals to the length of z (1 value per second)
+    m = len(z)
+    sig = z.copy()
+    if ez is not None and len(ez):
+        ez_pad = np.pad(ez[:m], (0, max(0, m - len(ez[:m]))))
+        sig = 0.60 * ez_pad + 0.40 * z
+    if has_heat:
+        hm = np.asarray(heatmap[:m], dtype=np.float32)
+        hm_pad = np.pad(hm, (0, max(0, m - len(hm))))
+        hm_z = loud_zscore(hm_pad * 10.0)
+        sig = 0.55 * hm_z + 0.30 * (ez_pad if ez is not None and len(ez) else z) + 0.15 * z
+
+    picks, order = [], np.argsort(-sig)
+    top_sig = max(1.0, float(sig[order[0]])) if len(order) else 1.0
     for sec in order:
-        s = max(0.0, float(sec) - max_len * 0.6)
+        s = max(0.0, float(sec) - max_len * 0.55)
         e = min(duration, s + max_len)
         if any(not (e <= p["start"] or s >= p["end"]) for p in picks):
             continue
         if not any(s <= w["s"] <= e for w in words):
             continue
-        picks.append({"start": s, "end": e, "score": 50, "category": "other", "hook": "WAIT FOR IT",
-                      "title": "Loud moment", "description": "", "hashtags": [], "highlight_words": [],
-                      "reason": "Picked by loudness because the AI was unavailable."})
+        peak_val = float(sig[sec])
+        heat_peak = float(np.max(heatmap[int(s):int(e) + 1])) if has_heat and int(s) < len(heatmap) else 0.0
+        score = int(max(45, min(98, round(55 + 35 * (peak_val / top_sig) + (10 if heat_peak >= 0.65 else 0)))))
+        hook = _auto_hook(words, s, e)
+        why = ("Trending YouTube Most-Replayed sector and vocal spike." if heat_peak >= 0.65
+               else "Auto-picked from microphone vocal energy and loudness peak.")
+        picks.append({"start": s, "end": e, "score": score, "category": "highlight", "hook": hook,
+                      "title": hook.title(), "description": "", "hashtags": [], "highlight_words": [],
+                      "reason": why})
         if len(picks) >= n:
             break
     return picks
@@ -378,8 +412,24 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=
             log(f"AI window {a:.0f}-{b:.0f}s failed: {e}")
     note = ""
     if not used_model:
-        found = fallback_by_loudness(db, words, max_clips, max_len, duration)
-        note = "The AI was unavailable, so clips were picked by loudness only."
+        found = fallback_by_loudness(db, words, max_clips, max_len, duration, energy=energy, heatmap=heatmap)
+        note = "Auto-picked from YouTube trending sectors and microphone vocal peaks."
+    else:
+        # Boost genuine trending signals (Most-Replayed heatmap + vocal energy) so the highest score is truly the most trending
+        for c in found:
+            try:
+                cs, ce = max(0, int(float(c.get("start", 0)))), max(1, int(float(c.get("end", 0))) + 1)
+                boost = 0
+                if heatmap is not None and len(heatmap) and cs < len(heatmap) and float(np.max(heatmap[cs:ce])) >= 0.65:
+                    boost += 12
+                if ez is not None and len(ez) and cs < len(ez) and float(np.max(ez[cs:ce])) >= 1.8:
+                    boost += 8
+                if boost:
+                    c["score"] = min(99, int(_num(c.get("score")) + boost))
+                if not str(c.get("hook") or "").strip():
+                    c["hook"] = _auto_hook(words, cs, ce)
+            except Exception:  # noqa: BLE001
+                pass
     clips = []
     for c in sorted(found, key=lambda c: -_num(c.get("score"))):
         s, e = _snap(c, lines, words, min_len, max_len, duration)
@@ -387,7 +437,10 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=
             continue
         if _overlaps(s, e, clips):
             continue  # overlaps a better clip
-        clips.append(_tidy(c, s, e, game))
+        tidied = _tidy(c, s, e, game)
+        if not tidied.get("hook"):
+            tidied["hook"] = _auto_hook(words, s, e)
+        clips.append(tidied)
         if len(clips) >= max_clips:
             break
     clips.sort(key=lambda c: c["start"])
@@ -516,6 +569,29 @@ def look_for_facecam(jpeg: bytes, timeout=None) -> dict:
     if said_no:
         return {"looked": True, "box": None}
     return {"looked": False, "box": None}
+
+
+def judge_expression(jpeg: bytes, timeout=None) -> int | None:
+    """Score facial expression / visual reaction intensity (0-100) from a live video frame.
+    Returns None if no vision-capable AI is configured."""
+    if not jpeg:
+        return None
+    prompt = (
+        "Look at the person's facial expression and body language in this live stream frame. "
+        "Rate the emotional reaction intensity from 0 to 100 "
+        "(0-25 = calm/neutral, 40-65 = engaged/smiling, 70-100 = shocked, laughing hard, yelling, or hype). "
+        "Reply with ONLY an integer number 0-100."
+    )
+    try:
+        text, sent, wrote = ai.see(prompt, jpeg, timeout)
+        if sent or wrote:
+            usage.record(sent, wrote, "Live: facial expression")
+        m = re.search(r"\b(\d{1,3})\b", text or "")
+        if m:
+            return max(0, min(100, int(m.group(1))))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 SIGNAL_JUDGE = """You judge a live stream ONLY from its reaction signals. You cannot hear the words or see the video.
 Each line is a 2-second slice: [seconds] L=how much louder than usual the streamer was (0 = normal,

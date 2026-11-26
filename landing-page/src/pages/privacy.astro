@@ -1,0 +1,38 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Privacy Policy"
+  description="How ClipCut handles media, transcripts, AI API keys, and optional account data."
+  currentPath="/privacy"
+  section="Legal"
+>
+  <h2>1. Local-First by Design</h2>
+  <p>
+    ClipCut runs on your own machine or server. Videos, downloaded streams, rendered clips,
+    transcripts, and SQLite/PostgreSQL databases stay in your configured storage directory (
+    <code>CLIPCUT_DATA</code>) and are never sent to ClipCut authors.
+  </p>
+
+  <h2>2. AI Providers &amp; Speech Processing</h2>
+  <ul>
+    <li>
+      <strong>Local Models:</strong> Speech-to-text via <code>sherpa-onnx</code> and{" "}
+      <code>faster-whisper</code>, as well as LLM inference via <code>ollama</code>, run 100%
+      locally without external network calls.
+    </li>
+    <li>
+      <strong>Cloud AI Keys:</strong> If you configure a cloud AI key in{" "}
+      <strong>Settings → AI</strong> or <code>.env</code>, transcripts and prompt context are sent
+      directly from your server to the provider you chose.
+    </li>
+  </ul>
+
+  <h2>3. Connected Social Accounts &amp; Email</h2>
+  <p>
+    OAuth tokens for YouTube, Instagram, and TikTok, as well as optional account emails (when{" "}
+    <code>CLIPCUT_ACCOUNTS=1</code>), are stored solely in your own instance database to perform
+    actions you explicitly request.
+  </p>
+</DocsLayout>

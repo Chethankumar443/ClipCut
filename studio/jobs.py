@@ -804,13 +804,15 @@ def _run_job(job):
         _set(job, status="running", stage="Picking up where it stopped", error=None)
     else:
         _set(job, status="running", stage="Getting the audio", progress=0.03, error=None, clips=[], ai={}, done_blocks=0)
-    speech = o.get("lang") if fetch_model.known(o.get("lang")) else fetch_model.DEFAULT   # the language spoken
-    if speech == fetch_model.DEFAULT and not transcribe.model_ready() and not transcribe.REMOTE:
+    speech_cfg = transcribe.speech_settings()
+    speech = (o.get("lang") or speech_cfg.get("language") or "auto").strip().lower()
+    use_sherpa = speech_cfg.get("engine") != "faster-whisper" and speech != "auto" and fetch_model.known(speech)
+    if use_sherpa and speech == fetch_model.DEFAULT and not transcribe.model_ready() and not transcribe.REMOTE:
         _set(job, stage="Getting the speech model (one time, about 480 MB)")
         fetch_model.ensure()
         _set(job, stage="Getting the audio")
     could_borrow = src["type"] == "url" and config.YT_TRANSCRIPT and media.is_youtube(src["url"])
-    if speech != fetch_model.DEFAULT and not transcribe.REMOTE and not could_borrow and fetch_model.status(speech) == "missing":
+    if use_sherpa and speech != fetch_model.DEFAULT and not transcribe.REMOTE and not could_borrow and fetch_model.status(speech) == "missing":
         fetch_model.ensure(speech, start=False)      # says what to do, before any time is spent on the download
     fetch = ThreadPoolExecutor(1)
     video = None

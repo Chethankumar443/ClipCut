@@ -1,0 +1,31 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Acceptable Use Policy"
+  description="Guidelines for responsible self-hosted operation and creator clipping."
+  currentPath="/acceptable-use"
+  section="Legal"
+>
+  <h2>1. Respect Creator &amp; Platform Rules</h2>
+  <p>
+    Only clip, remix, or republish content from creators whose guidelines permit clipping, or where
+    you hold explicit permission or applicable fair-use rights. Always credit original creators
+    where required.
+  </p>
+
+  <h2>2. Prohibited Uses</h2>
+  <ul>
+    <li>Using ClipCut to automate spam, harassment, impersonation, or unauthorized re-uploads.</li>
+    <li>Circumventing platform rate limits, access controls, or OAuth API restrictions.</li>
+    <li>Deploying public multi-user instances without appropriate rate limits and account verification.</li>
+  </ul>
+
+  <h2>3. Server Operator Controls</h2>
+  <p>
+    Administrators running public instances should enable accounts (<code>CLIPCUT_ACCOUNTS=1</code>),
+    email verification (<code>CLIPCUT_VERIFY_EMAIL=1</code>), and sensible per-user limits in{" "}
+    <code>.env</code>.
+  </p>
+</DocsLayout>

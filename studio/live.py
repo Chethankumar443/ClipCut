@@ -529,19 +529,6 @@ class Session:
             return self._verdict(verdict, f"Skipped: {st['live_per_hour']} clips this hour already")
         usage.set_context(self.job["creator"], self.job["title"] or "Live stream")
         title, up = self.job["title"], self.job["uploader"]
-        try:
-            cands, tok = brain.judge_transcript(win, ws, now, title, up, st["min_len"], st["max_len"], self.job["clips"],
-                                                n=1 if every <= 2 else 2, must=must, game=self._game(),
-                                                timeout=config.LIVE_AI_TIMEOUT)  # Auto (0) asks for one
-        except Exception as e:  # noqa: BLE001
-            self.job["ai"]["last_error"] = str(e)[-200:]
-            return self._verdict(verdict, "AI error: " + str(e)[-80:])
-        self.checks += 1
-        self.tokens += tok
-        keep = [c for c in cands if c["score"] >= (40 if must else st["min_score"])]
-        verdict["transcript"] = max((c["score"] for c in cands), default=0)
-        if not keep:
-            return self._verdict(verdict, "Words judge: nothing clip-worthy")
         z = brain.loud_zscore(np.array(self.db, dtype=np.float32))
         lo, hi = int(ws), int(now) + 1
         people = self.chat_people()
@@ -551,6 +538,62 @@ class Session:
         else:
             chat = [self.chat.get(t, 0) for t in range(lo, hi)] if (self.chat_on or self.chat_total) else None
             unit = "messages"
+
+        def _peek_expression(at_sec: float) -> int | None:
+            try:
+                with self.lock:
+                    seg = next((s[0] for s in reversed(self.segments) if s[1] <= at_sec <= s[2] and s[0].exists()), None)
+                if seg:
+                    jpeg = media.frame_at(seg, max(0.5, at_sec))
+                    return brain.judge_expression(jpeg, timeout=min(15, config.LIVE_AI_TIMEOUT)) if jpeg else None
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+
+        cands, tok = [], 0
+        try:
+            cands, tok = brain.judge_transcript(win, ws, now, title, up, st["min_len"], st["max_len"], self.job["clips"],
+                                                n=1 if every <= 2 else 2, must=must, game=self._game(),
+                                                timeout=config.LIVE_AI_TIMEOUT)  # Auto (0) asks for one
+        except Exception as e:  # noqa: BLE001
+            self.job["ai"]["last_error"] = str(e)[-200:]
+        self.checks += 1
+        self.tokens += tok
+        keep = [c for c in cands if c["score"] >= (40 if must else st["min_score"])]
+        verdict["transcript"] = max((c["score"] for c in cands), default=0)
+
+        # Self-create a hook automatically from most-commented chat burst + vocal loudness + facial expression when AI is off or found nothing on a spike/must-clip
+        if not keep and (must or any("chat" in w or "loud" in w for w in why)):
+            z_win = z[lo:hi] if lo < len(z) else np.zeros(max(1, hi - lo), dtype=np.float32)
+            comb = z_win.copy()
+            if chat and sum(chat) > 0:
+                c_arr = np.asarray(chat[:len(comb)], dtype=np.float32)
+                c_pad = np.pad(c_arr, (0, max(0, len(comb) - len(c_arr))))
+                comb = 0.60 * brain.loud_zscore(c_pad) + 0.40 * comb
+            if len(comb):
+                peak_off = int(np.argmax(comb))
+                peak_sec = lo + peak_off
+                s_auto = max(ws, peak_sec - st["max_len"] * 0.55)
+                e_auto = min(now, s_auto + st["max_len"])
+                if e_auto - s_auto >= st["min_len"] - 1 and not any(abs(s_auto - k["start"]) < st["min_gap_min"] * 60 for k in self.job["clips"]):
+                    expr = _peek_expression(peak_sec)
+                    auto_score = int(max(55, min(95, round(62 + float(comb[peak_off]) * 8 + ((expr - 50) * 0.25 if expr is not None else 0)))))
+                    hook_txt = brain._auto_hook(win, s_auto, e_auto)
+                    src_why = "Most-commented chat burst" if (chat and sum(chat) > 0) else "Vocal spike"
+                    if expr is not None and expr >= 65:
+                        src_why += f" & strong facial expression ({expr}/100)"
+                    auto_clip = {
+                        "start": round(s_auto, 2), "end": round(e_auto, 2), "score": auto_score,
+                        "category": "highlight", "hook": hook_txt, "title": hook_txt.title(),
+                        "description": "", "hashtags": [], "highlight_words": [],
+                        "reason": f"Auto-created hook from {src_why.lower()}.",
+                        "judges": {"words": None, "reaction": auto_score, "expression": expr, "why": src_why},
+                    }
+                    self._add_clip(auto_clip)
+                    self._verdict(verdict, f"Auto-clipped: {src_why.lower()}")
+                    return
+        if not keep:
+            return self._verdict(verdict, "Words judge: nothing clip-worthy")
         try:
             sig, tok2 = brain.judge_signals(z[lo:hi], chat, lo, now, unit=unit, timeout=config.LIVE_AI_TIMEOUT)
             self.checks += 1
@@ -562,8 +605,13 @@ class Session:
         for c in keep:
             match = [m for m in sig if m["end"] >= c["start"] - 10 and m["start"] <= c["end"] + 10 and m["score"] >= 50]
             rs = max((m["score"] for m in match), default=0)
+            expr = _peek_expression((c["start"] + c["end"]) / 2)
+            if expr is not None and expr >= 65:
+                c["score"] = min(99, int(c["score"] + 6))
+            if not str(c.get("hook") or "").strip():
+                c["hook"] = brain._auto_hook(win, c["start"], c["end"])
             verdict["reaction"] = rs
-            both = bool(match)
+            both = bool(match) or (expr is not None and expr >= 70)
             ok = both or (st["decide_mode"] == "either" and c["score"] >= 90) or (must and added == 0)
             if not ok:
                 self.rejected += 1
@@ -574,7 +622,7 @@ class Session:
                 continue
             why = "Both judges agreed" if both else ("Words judge was very sure" if c["score"] >= 90 and
                                                      st["decide_mode"] == "either" else "Forced: no clip for a while")
-            c["judges"] = {"words": c["score"], "reaction": rs or None, "why": why}
+            c["judges"] = {"words": c["score"], "reaction": rs or None, "expression": expr, "why": why}
             c["reason"] = f"{c['reason']} ({why.lower()}.)"
             self._add_clip(c)
             self._verdict(verdict, "Clipped: " + why.lower())

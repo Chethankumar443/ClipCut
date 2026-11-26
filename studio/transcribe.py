@@ -316,17 +316,108 @@ def _decode_remote(pieces: list, lang: str = fetch_model.DEFAULT) -> list:
     return [(p["tokens"], p["timestamps"]) for p in got]
 
 
-def _transcribe_faster_whisper(audio: np.ndarray, on_progress=None, lang: str = "en") -> list:
-    """Transcribe 16 kHz int16 audio using faster-whisper with word-level timestamps."""
-    from faster_whisper import WhisperModel
+WHISPER_MODELS = ("tiny", "base", "small", "medium", "large-v3")
+SPEECH_LANGUAGES = (
+    ("auto", "Auto-detect from video"),
+    ("en", "English"),
+    ("ar", "Arabic"),
+    ("es", "Spanish"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("hi", "Hindi"),
+    ("pt", "Portuguese"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("zh", "Chinese"),
+    ("ru", "Russian"),
+    ("it", "Italian"),
+    ("tr", "Turkish"),
+    ("nl", "Dutch"),
+    ("pl", "Polish"),
+    ("uk", "Ukrainian"),
+    ("vi", "Vietnamese"),
+    ("id", "Indonesian"),
+)
+_SPEECH_LANG_SET = {k for k, _ in SPEECH_LANGUAGES}
+_whisper_models: dict = {}
+_whisper_lock = threading.Lock()
+
+
+def _speech_file():
     from . import config as _cfg
-    model_name = _cfg.WHISPER_MODEL or "base"
+    return _cfg.DATA_DIR / "speech.json"
+
+
+def speech_settings() -> dict:
+    """Saved speech engine, Whisper model size, and default language (auto-detect by default)."""
+    import json
+    from . import config as _cfg
+    out = {
+        "engine": _cfg.ASR_ENGINE if _cfg.ASR_ENGINE in ("auto", "sherpa", "faster-whisper") else "auto",
+        "whisper_model": _cfg.WHISPER_MODEL if _cfg.WHISPER_MODEL in WHISPER_MODELS else "base",
+        "language": "auto",
+    }
+    p = _speech_file()
+    if p.is_file():
+        try:
+            saved = json.loads(p.read_text(encoding="utf-8"))
+            if saved.get("engine") in ("auto", "sherpa", "faster-whisper"):
+                out["engine"] = saved["engine"]
+            if saved.get("whisper_model") in WHISPER_MODELS:
+                out["whisper_model"] = saved["whisper_model"]
+            if saved.get("language") in _SPEECH_LANG_SET:
+                out["language"] = saved["language"]
+        except Exception:
+            pass
+    return out
+
+
+def save_speech_settings(body: dict) -> dict:
+    import json
+    cur = speech_settings()
+    if "engine" in body:
+        eng = str(body["engine"] or "").strip().lower()
+        if eng not in ("auto", "sherpa", "faster-whisper"):
+            raise ValueError("Unknown speech engine.")
+        cur["engine"] = eng
+    if "whisper_model" in body:
+        wm = str(body["whisper_model"] or "").strip().lower()
+        if wm not in WHISPER_MODELS:
+            raise ValueError("Unknown Faster-Whisper model size.")
+        cur["whisper_model"] = wm
+    if "language" in body:
+        lg = str(body["language"] or "").strip().lower()
+        if lg not in _SPEECH_LANG_SET:
+            raise ValueError("Unsupported spoken language.")
+        cur["language"] = lg
+    p = _speech_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+    return cur
+
+
+def _get_whisper(model_name: str, device: str, compute: str):
+    from faster_whisper import WhisperModel
+    key = (model_name, device, compute)
+    with _whisper_lock:
+        m = _whisper_models.get(key)
+        if m is None:
+            m = _whisper_models[key] = WhisperModel(model_name, device=device, compute_type=compute)
+        return m
+
+
+def _transcribe_faster_whisper(audio: np.ndarray, on_progress=None, lang: str = "auto", model_name: str = "") -> list:
+    """Transcribe 16 kHz int16 audio using faster-whisper with word-level timestamps.
+    When lang is 'auto' or empty, faster-whisper detects the spoken language from the video audio."""
+    cfg = speech_settings()
+    model_name = model_name or cfg["whisper_model"] or "base"
     device = "cuda" if PROVIDER == "cuda" else "cpu"
     compute = "float16" if device == "cuda" else "int8"
-    model = WhisperModel(model_name, device=device, compute_type=compute)
+    model = _get_whisper(model_name, device, compute)
     pcm = audio.astype(np.float32) / 32768.0
     total_dur = max(0.1, len(pcm) / 16000.0)
-    segments, _ = model.transcribe(pcm, language=lang or None, word_timestamps=True, vad_filter=True)
+    whisper_lang = None if (not lang or lang == "auto") else lang
+    segments, _ = model.transcribe(pcm, language=whisper_lang, word_timestamps=True, vad_filter=True)
     words = []
     for seg in segments:
         for w in (seg.words or []):
@@ -340,18 +431,27 @@ def _transcribe_faster_whisper(audio: np.ndarray, on_progress=None, lang: str = 
     return words
 
 
-def transcribe(audio: np.ndarray, on_progress=None, lang: str = fetch_model.DEFAULT) -> list:
+def transcribe(audio: np.ndarray, on_progress=None, lang: str = "") -> list:
     """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio, heard as `lang`.
-    Uses sherpa-onnx by default, or faster-whisper when CLIPCUT_ASR_ENGINE=faster-whisper (or as fallback)."""
+    Uses sherpa-onnx by default for installed single-language models, or faster-whisper for multilingual / auto-detect."""
     global _remote_down_until
-    from . import config as _cfg
-    engine = _cfg.ASR_ENGINE or "auto"
-    if engine == "faster-whisper" or (engine == "auto" and not model_ready(lang) and not _remote_ok(lang)):
+    cfg = speech_settings()
+    engine = cfg["engine"]
+    target_lang = (lang or cfg["language"] or "auto").strip().lower()
+    use_whisper = (
+        engine == "faster-whisper"
+        or (engine == "auto" and (
+            target_lang == "auto"
+            or not fetch_model.known(target_lang)
+            or (not model_ready(target_lang) and not _remote_ok(target_lang))
+        ))
+    )
+    if use_whisper:
         try:
-            return _transcribe_faster_whisper(audio, on_progress=on_progress, lang=lang)
+            return _transcribe_faster_whisper(audio, on_progress=on_progress, lang=target_lang, model_name=cfg["whisper_model"])
         except ImportError:
             pass
-    lang = lang if fetch_model.known(lang) else fetch_model.DEFAULT
+    lang = target_lang if fetch_model.known(target_lang) else fetch_model.DEFAULT
     words = []
     todo = []
     for a, b in _chunks(audio):

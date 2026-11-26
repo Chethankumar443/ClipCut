@@ -1,0 +1,50 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="ClipCut Documentation"
+  description="Architecture, installation, AI providers, speech models, and production deployment for ClipCut."
+  currentPath="/docs"
+  section="Overview"
+>
+  <p>
+    <strong>ClipCut</strong> is a free, MIT-licensed, self-hosted AI video clipping studio built with{" "}
+    <strong>FastAPI</strong>, <strong>FFmpeg</strong>, <strong>yt-dlp</strong>,{" "}
+    <strong>librosa</strong>, and local or cloud speech &amp; language models.
+  </p>
+
+  <h2>How the Pipeline Works</h2>
+  <ol>
+    <li>
+      <strong>Ingestion:</strong> Paste a YouTube, Twitch, or Kick URL, upload a local file in
+      resumable chunks, or monitor a live creator stream.
+    </li>
+    <li>
+      <strong>Transcription:</strong> Pulls existing captions via <code>youtube-transcript-api</code>{" "}
+      or <code>yt-dlp</code> first, falling back to local <code>sherpa-onnx</code> (Parakeet 0.6b)
+      or <code>faster-whisper</code>.
+    </li>
+    <li>
+      <strong>Moment Detection &amp; Scoring:</strong> Tags vocal energy peaks with{" "}
+      <code>librosa.feature.rms()</code>, attaches Most-Replayed viewer heatmaps, and scores hooks
+      with your configured AI provider (or loudness fallback without a key).
+    </li>
+    <li>
+      <strong>Studio Editing &amp; Rendering:</strong> Renders <code>9:16</code>,{" "}
+      <code>1:1</code>, or <code>16:9</code> clips with word-level ASS captions (<code>Bounce</code>,{" "}
+      <code>Hype</code>, <code>Clean</code>) and background music sidechain auto-ducking.
+    </li>
+  </ol>
+
+  <h2>Repository Map</h2>
+  <ul>
+    <li><code>studio/server.py</code> — FastAPI routes, auth/rate-limit middleware, media streaming</li>
+    <li><code>studio/jobs.py</code> — Fair multi-user job queue and video pipeline orchestration</li>
+    <li><code>studio/media.py</code> — <code>yt-dlp</code> ingestion, audio probing, and replay heatmaps</li>
+    <li><code>studio/transcribe.py</code> — Hybrid ASR (<code>sherpa-onnx</code>, GPU worker, <code>faster-whisper</code>)</li>
+    <li><code>studio/brain.py</code> — Hook scoring prompts, gaming rules, and feedback personalization</li>
+    <li><code>studio/render.py</code> — FFmpeg cutting, layouts, ASS captions, and BGM mixing</li>
+    <li><code>web/index.html</code> — Single-file zero-build studio web application</li>
+  </ul>
+</DocsLayout>

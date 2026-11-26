@@ -1574,10 +1574,27 @@ def _speech_lang(lang: str) -> str:
 @app.get("/api/speech")
 def speech_list(request: Request):
     _admin(request)
-    from . import fetch_model
-    return {"models": [{"lang": k, "label": m[0], "size_mb": m[3], "credit": m[4], "state": fetch_model.status(k),
-                        "percent": fetch_model.state[k]["percent"], "error": fetch_model.state[k]["error"],
-                        "default": k == fetch_model.DEFAULT} for k, m in fetch_model.MODELS.items()]}
+    from . import fetch_model, transcribe
+    return {
+        "models": [{"lang": k, "label": m[0], "size_mb": m[3], "credit": m[4], "state": fetch_model.status(k),
+                    "percent": fetch_model.state[k]["percent"], "error": fetch_model.state[k]["error"],
+                    "default": k == fetch_model.DEFAULT} for k, m in fetch_model.MODELS.items()],
+        "settings": transcribe.speech_settings(),
+        "whisper_models": list(transcribe.WHISPER_MODELS),
+        "languages": [{"code": code, "label": label} for code, label in transcribe.SPEECH_LANGUAGES],
+    }
+
+
+@app.put("/api/speech")
+def speech_save(request: Request, body: dict = Body(...)):
+    _admin(request)
+    from . import transcribe
+    try:
+        transcribe.save_speech_settings(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    ctx.bump()
+    return speech_list(request)
 
 
 @app.post("/api/speech/{lang}")

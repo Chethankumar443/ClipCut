@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ClipCut</title>
-  <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="/brand/mascot-dark.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -206,10 +206,13 @@
     }
 
     .top-brand img {
-      width: 24px;
-      height: 24px;
-      border-radius: 6px;
+      width: auto;
+      height: 28px;
       display: block
+    }
+
+    html[data-theme="dark"] .top-brand img {
+      filter: invert(1)
     }
 
     .top-center {
@@ -1558,6 +1561,10 @@
       margin-bottom: 12px
     }
 
+    html[data-theme="dark"] .empty img {
+      filter: invert(1)
+    }
+
     .empty b {
       display: block;
       color: var(--brand-ink);
@@ -2844,18 +2851,24 @@
       top: 76px;
       display: flex;
       flex-direction: column;
-      gap: 2px
+      gap: 8px
     }
 
     .set-link {
       display: flex;
       gap: 12px;
       align-items: flex-start;
-      padding: 10px 12px;
-      border-radius: 10px;
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card, transparent);
       color: var(--dim);
+      font: inherit;
+      text-align: left;
       text-decoration: none;
-      transition: background-color .15s ease, color .15s ease
+      cursor: pointer;
+      transition: background-color .15s ease, border-color .15s ease, color .15s ease
     }
 
     .set-link svg {
@@ -2880,11 +2893,13 @@
     }
 
     .set-link:hover {
-      background: var(--muted)
+      background: var(--muted);
+      border-color: var(--dim)
     }
 
     .set-link.on {
-      background: var(--brand-soft)
+      background: var(--brand-soft);
+      border-color: var(--brand)
     }
 
     .set-link.on svg {
@@ -6445,32 +6460,49 @@
 
     .qm-item {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 12px;
       width: 100%;
-      padding: 9px 10px;
-      border: 0;
-      border-radius: 10px;
-      background: transparent;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card, transparent);
       color: var(--text);
       font-size: 13.5px;
       font-weight: 500;
       cursor: pointer;
       text-align: left;
       text-decoration: none;
-      transition: background-color .15s ease, color .15s ease;
+      transition: background-color .15s ease, border-color .15s ease, color .15s ease;
     }
 
     .qm-item:hover {
       background: var(--muted);
+      border-color: var(--dim);
       color: var(--brand-ink);
     }
 
     .qm-item svg {
       width: 16px;
       height: 16px;
+      margin-top: 2px;
       color: var(--dim);
       flex: none;
+    }
+
+    .qm-item span b {
+      display: block;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .qm-item span small {
+      display: block;
+      font-size: 11.5px;
+      color: var(--faint);
+      line-height: 1.35;
     }
 
     .qm-sep {
@@ -6783,8 +6815,7 @@
       <header class="topbar">
         <div class="top-left">
           <a class="top-brand" href="/app" data-act="go" data-v="overview" aria-label="ClipCut Home">
-            <img src="/brand/favicon.svg" alt="">
-            <span>ClipCut</span>
+            <img src="/brand/clipcut-logo-dark.svg" alt="ClipCut">
           </a>
           <span id="tpic"></span>
         </div>
@@ -6950,10 +6981,6 @@
         {
           t: "Alerts & notifications", x: "The bell in the bottom bar alerts you when clips are ready, a live recording finishes, or a scheduled post goes out.",
           sel: '#bottomNav [data-act="bell"]', dock: "top", chips: [["bell", "Alerts", 1], ["check", "Clips ready"], ["radio", "Live ended"]]
-        },
-        {
-          t: "Account & AI usage", x: "Your account button opens AI usage stats, Take the tour, and Send feedback.",
-          sel: '#bottomNav [data-act="acctmenu"]', dock: "top", chips: [["user", "Account", 1], ["chart", "AI usage"], ["bolt", "Usage stats"]]
         },
         {
           t: "Light & dark theme", x: "Use the top-right theme button anytime to switch between Light and Dark mode. Your choice is saved automatically.",
@@ -7166,18 +7193,13 @@
     const NT_ICON = { live: "radio", clips: "scissors", post: "warn", fail: "warn", account: "user", feedback: "chat" };
     const ago = t => { const s = Date.now() / 1000 - t; return s < 60 ? "just now" : s < 3600 ? Math.floor(s / 60) + " min ago" : s < 86400 ? Math.floor(s / 3600) + " h ago" : new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" }); };
     function closePops(except) {
-      ["bellpop", "acctpop"].forEach(id => { const p = $("#" + id); if (p !== except && !p.hidden) { p.classList.remove("open"); setTimeout(() => { if (!p.classList.contains("open")) p.hidden = true; }, 220); } });
-      const acctOpen = except?.id === "acctpop";
+      ["bellpop"].forEach(id => { const p = $("#" + id); if (p && p !== except && !p.hidden) { p.classList.remove("open"); setTimeout(() => { if (!p.classList.contains("open")) p.hidden = true; }, 220); } });
       const bellOpen = except?.id === "bellpop";
-      $$('[data-act="acctmenu"]').forEach(b => {
-        b.setAttribute("aria-expanded", String(acctOpen));
-        b.classList.toggle("on", acctOpen);
-      });
       $$('[data-act="bell"]').forEach(b => {
         b.setAttribute("aria-expanded", String(bellOpen));
         b.classList.toggle("on", bellOpen);
       });
-      if (!acctOpen && !bellOpen) {
+      if (!bellOpen) {
         $$('#bottomNav .wing-item[data-act="go"]').forEach(b => b.classList.toggle("on", b.dataset.v === S.view));
       } else {
         $$('#bottomNav .wing-item[data-act="go"]').forEach(b => b.classList.remove("on"));
@@ -7232,21 +7254,8 @@
       } catch (e) { p.innerHTML = `<div class="pop-head"><h3>Notifications</h3></div><div class="pop-empty">${esc(e.message)}</div>`; }
     }
     async function markRead() { try { await send("/api/notifications/read"); S.status.unread = 0; drawShell(); } catch { } }
-    function openAcct() {
-      const p = $("#acctpop");
-      if (!p) return;
-      if (!p.hidden) return closePops();
-      const u = S.status.user;
-      const on = S.status.accounts !== false;
-      p.innerHTML = `
-    <button data-act="go" data-v="usage">${ic("chart")}<span>AI usage</span></button>
-    <button data-act="tour">${ic("play")}<span>Take the tour</span></button>
-    <button data-act="feedback">${ic("chat")}<span>Send feedback</span></button>
-    ${on && u ? `<button class="danger" data-act="logout">${ic("signout")}<span>Sign out</span></button>` : ""}`;
-      openPop(p, $("[data-act=acctmenu]"));
-    }
     document.addEventListener("click", e => {
-      if (!e.target.closest(".pop, [data-act=bell], [data-act=acctmenu]")) closePops();
+      if (!e.target.closest(".pop, [data-act=bell]")) closePops();
       if (!e.target.closest("#quickMenu, .wing-item.plus, #tour")) closeQuick();
     });
     document.addEventListener("pointerdown", e => { const b = e.target.closest(".wing-item[data-fx]"); if (b) navFx(b); });
@@ -7290,12 +7299,10 @@
         lastNotice = Math.max(lastNotice, top); localStorage.setItem("lastNotice", lastNotice);
       } catch { }
     }
-    /* feedback goes to the maker's Instagram. A problem's message is copied first, so it can be pasted there. */
-    async function openFeedback(kind = "bug", context = "") {
-      const url = S.status?.links?.follow;
-      if (!url) return toast(context ? "Copy this message and open an issue on GitHub." : "There's no feedback link on this server.");
-      if (context) { try { await navigator.clipboard.writeText(context); toast("The problem is copied. Paste it in your message.", "ok"); } catch { } }
-      window.open(url, "_blank", "noopener");
+    /* Send feedback opens the in-app feedback page instead of redirecting externally. */
+    function openFeedback(kind = "other", context = "") {
+      S.feedbackDraft = { kind: kind || "other", context: context || "", rating: 5 };
+      go("feedback");
     }
     function updateHow() {
       const up = S.status?.update, d = $("#formdlg"); if (!up || d.open) return;
@@ -7343,29 +7350,21 @@
           <button class="wing-item plus" data-act="quick" data-fx="plus" title="Create" aria-label="Create" aria-haspopup="menu" aria-expanded="false"><span class="wing-icon">${ic("plus")}</span><span class="wing-label">Create</span></button>
           ${st.user ? `<button class="wing-item" data-act="bell" data-fx="ring" title="Notifications" aria-label="Notifications${st.unread ? `, ${st.unread} new` : ""}" aria-haspopup="dialog"><span class="wing-icon bell">${ic("bell")}${st.unread ? `<span class="dotn">${st.unread > 9 ? "9+" : st.unread}</span>` : ""}</span><span class="wing-label">Alerts</span></button>` : ""}
           ${wing("settings", `<span class="wing-icon">${navIc("cog", "settings")}</span>`, "Settings", "", "spin")}
-          ${st.user ? `<button class="wing-item" data-act="acctmenu" title="Account" aria-label="Account" aria-haspopup="menu" aria-expanded="false"><span class="wing-icon">${meAvatar(st.user)}</span><span class="wing-label">Account</span></button>` : ""}
         </div>
         <div class="quick-menu" id="quickMenu" role="menu" aria-label="Create">
           <div class="qm-head">Start something</div>
-          <button class="qm-item" data-act="focusurl">${ic("link")}<span>Paste a video link</span></button>
-          <button class="qm-item" data-act="pickfile">${ic("up")}<span>Upload a video</span></button>
-          <button class="qm-item" data-act="newcreator">${ic("plusc")}<span>New creator</span></button>
-          <button class="qm-item" data-act="go" data-v="creators">${ic("user")}<span>Creators &amp; live</span></button>
+          <button class="qm-item" data-act="focusurl">${ic("link")}<span><b>Paste a video link</b><small>YouTube, Twitch, or Kick URL</small></span></button>
+          <button class="qm-item" data-act="pickfile">${ic("up")}<span><b>Upload a video</b><small>MP4, MKV, MOV, or WebM</small></span></button>
+          <button class="qm-item" data-act="newcreator">${ic("plusc")}<span><b>New creator</b><small>Track a channel or stream</small></span></button>
+          <button class="qm-item" data-act="go" data-v="creators">${ic("user")}<span><b>Creators &amp; live</b><small>Manage live auto-clipping</small></span></button>
           <div class="qm-sep"></div>
           <div class="qm-head">Creators</div>
           <div class="qm-c-slot">${S.creators.length ? `<div class="qm-creators">${creatorList}</div>` : `<div class="qm-empty">No creators yet. Make one to keep videos and clips together.</div>`}</div>
-          ${st.user?.role === "admin" && st.accounts !== false ? `<a class="qm-item" href="/admin">${ic("shield")}<span>Admin dashboard</span></a>` : ""}
-          <button class="qm-item" data-act="tour">${ic("play")}<span>Take the tour</span></button>
-        </div>
-        <div class="pop menu" id="acctpop" role="menu" hidden></div>`;
+          ${st.user?.role === "admin" && st.accounts !== false ? `<a class="qm-item" href="/admin">${ic("shield")}<span><b>Admin dashboard</b><small>Users, storage &amp; server health</small></span></a>` : ""}
+          <button class="qm-item" data-act="tour">${ic("play")}<span><b>Take the tour</b><small>Walk through the studio</small></span></button>
+        </div>`;
         } else {
-          const acctOpen = !$("#acctpop")?.hidden;
           const bellOpen = !$("#bellpop")?.hidden;
-          const acctBtn = bn.querySelector(".wing-item[data-act='acctmenu']");
-          if (acctBtn) {
-            acctBtn.classList.toggle("on", acctOpen);
-            acctBtn.setAttribute("aria-expanded", String(acctOpen));
-          }
           const bellBtnEl = bn.querySelector(".wing-item[data-act='bell']");
           if (bellBtnEl) {
             bellBtnEl.classList.toggle("on", bellOpen);
@@ -7373,7 +7372,7 @@
           }
           bn.querySelectorAll(".wing-item[data-act='go']").forEach(btn => {
             const v = btn.dataset.v;
-            btn.classList.toggle("on", !acctOpen && !bellOpen && S.view === v);
+            btn.classList.toggle("on", !bellOpen && S.view === v);
             const iconSpan = btn.querySelector(".wing-icon");
             if (iconSpan) {
               const icName = v === "overview" ? "home" : v === "library" ? "film" : v === "settings" ? "cog" : "";
@@ -7418,8 +7417,9 @@
       });
       const c = creator();
       const recording = S.creators.filter(x => x.live_job).length;
-      let title = { overview: "Home", library: "All videos", creators: "Creators", settings: "Settings", usage: "AI usage" }[S.view] || "", sub = "", act = "";
+      let title = { overview: "Home", library: "All videos", creators: "Creators", settings: "Settings", usage: "AI usage", feedback: "Send feedback" }[S.view] || "", sub = "", act = "";
       if (S.view === "usage") sub = "What the AI has been used for.";
+      if (S.view === "feedback") sub = "Share your rating, feature ideas or report an issue.";
       if (S.view === "overview") sub = `${greeting()}. ${S.creators.length} creator${S.creators.length === 1 ? "" : "s"}${recording ? `, ${recording} recording now` : ""}.`;
       if (S.view === "library") sub = "Every video and recording, across all creators.";
       if (S.view === "creators") sub = "Monitor live streams and auto-clip moments in real time.";
@@ -7454,7 +7454,7 @@
       put($("#title"), `<span>${esc(title)}</span>`); put($("#subtitle"), subHtml ?? esc(sub)); put($("#actions"), act);
     }
 
-    const ROUTES = { overview: "", library: "videos", creators: "creators", settings: "settings", usage: "usage" };
+    const ROUTES = { overview: "", library: "videos", creators: "creators", settings: "settings", usage: "usage", feedback: "feedback" };
     function pathFor(v, tab) {
       if (v.startsWith("c:")) return `/app/creators/${encodeURIComponent(v.slice(2))}${tab && tab !== "clips" ? "/" + tab : ""}`;
       if (v === "settings") return "/app/settings" + (tab ? "/" + tab : "");
@@ -7636,6 +7636,7 @@
       else if (v === "creators") view.innerHTML = `<div id="crhub"></div>`;
       else if (v === "settings") view.innerHTML = `<div id="sform"><div class="skel skel-line" style="width:45%"></div><div class="skel skel-line" style="width:75%"></div><div class="skel skel-card" style="height:120px;margin-top:14px"></div></div>`;
       else if (v === "usage") { view.innerHTML = `<div id="usage"></div>`; loadUsage(); }
+      else if (v === "feedback") { view.innerHTML = `<div id="fbview"></div>`; drawFeedback(); }
       else view.innerHTML = `<div id="stream"></div><div id="cbody"></div>`;   // the live player stays put across tabs: no restart, no rebuffer
       if ($("#add")) drawAdd(v === "overview" ? "hero" : "compact");
       renderAsciiBg();
@@ -8258,7 +8259,7 @@
       }
       if (!list.length) {
         root.querySelectorAll("section").forEach(e => e.remove());
-        if (!$(".empty", root)) root.innerHTML = `<div class="empty"><img src="/brand/favicon.svg" alt=""><b>${cid ? "No clips for this creator yet" : "No videos yet"}</b>${cid ? "Start recording their stream, or paste a link to one of their videos above." : "Paste a link above and the studio will find the best moments and turn them into clips."}</div>`;
+        if (!$(".empty", root)) root.innerHTML = `<div class="empty"><img src="/brand/mascot-dark.svg" alt=""><b>${cid ? "No clips for this creator yet" : "No videos yet"}</b>${cid ? "Start recording their stream, or paste a link to one of their videos above." : "Paste a link above and the studio will find the best moments and turn them into clips."}</div>`;
         return;
       }
       $(".empty", root)?.remove();
@@ -8347,7 +8348,7 @@
     function drawLog() {
       const c = creator();
       put($("#clog"), c && c.log.length ? `<div class="card"><div class="log">${c.log.map(l => `<div><time>${when(l.t)}</time><span>${esc(l.msg)}</span></div>`).join("")}</div></div>`
-        : `<div class="empty"><img src="/brand/favicon.svg" alt=""><b>Nothing has happened yet</b>Recordings, clips and posts for this creator will be listed here.</div>`);
+        : `<div class="empty"><img src="/brand/mascot-dark.svg" alt=""><b>Nothing has happened yet</b>Recordings, clips and posts for this creator will be listed here.</div>`);
     }
 
     /* ============================================================ overview */
@@ -8411,6 +8412,81 @@
             <td class="c-act" style="text-align:right">${p.status === "scheduled" ? `<button class="btn sm" data-act="pcancel" data-id="${p.id}">Cancel</button>` : p.status === "failed" ? `<button class="btn sm" data-act="pretry" data-id="${p.id}">Retry</button>` : ""}</td></tr>`).join("")}</table></div>`
           : `<p class="help">Nothing queued or posted yet.</p>`}
         </div>`);
+    }
+
+    /* ============================================================ send feedback */
+    function drawFeedback() {
+      const el = $("#fbview");
+      if (!el) return;
+      const draft = S.feedbackDraft || { kind: "other", context: "", rating: 5 };
+      const kinds = [["other", "General feedback"], ["idea", "Feature idea"], ["bug", "Bug report"]];
+      el.innerHTML = `<section class="set-sec" style="max-width:640px">
+        <h2>Send feedback</h2>
+        <p class="help">Rate your experience and let us know what works well or what we can improve.</p>
+        <div class="f" style="margin-top:16px">
+          <span style="display:block;font-size:12px;font-weight:600;color:var(--dim);margin-bottom:8px">Rating</span>
+          <div class="row" id="fbStars" style="gap:6px" role="radiogroup" aria-label="Rating">
+            ${[1, 2, 3, 4, 5].map(n => `<button type="button" class="btn sm ${n <= draft.rating ? "primary" : ""}" data-rate="${n}" aria-label="${n} star${n === 1 ? "" : "s"}" aria-checked="${n === draft.rating}" style="min-width:44px;font-size:15px">${n <= draft.rating ? "★" : "☆"} ${n}</button>`).join("")}
+          </div>
+        </div>
+        <div class="f" style="margin-top:16px">
+          <span style="display:block;font-size:12px;font-weight:600;color:var(--dim);margin-bottom:8px">Topic</span>
+          <div class="row" id="fbKinds" style="gap:8px;flex-wrap:wrap">
+            ${kinds.map(([k, lbl]) => `<button type="button" class="btn sm ${draft.kind === k ? "primary" : ""}" data-kind="${k}">${esc(lbl)}</button>`).join("")}
+          </div>
+        </div>
+        <div class="f" style="margin-top:16px">
+          <label for="fbMsg" style="display:block;font-size:12px;font-weight:600;color:var(--dim);margin-bottom:6px">Your feedback</label>
+          <textarea id="fbMsg" rows="5" placeholder="Tell us what you think, request a feature, or describe an issue…" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--card);color:var(--ink);font:inherit;resize:vertical">${esc(draft.context ? `Issue context: ${draft.context}\n\n` : "")}</textarea>
+        </div>
+        <div class="row" style="margin-top:18px;gap:10px">
+          <button type="button" class="btn primary" id="fbSubmit">Submit feedback</button>
+          <button type="button" class="btn" data-act="go" data-v="overview">Back to Home</button>
+        </div>
+      </section>`;
+
+      let rating = draft.rating || 5;
+      let kind = draft.kind || "other";
+      const renderStars = () => {
+        $$("#fbStars [data-rate]").forEach(b => {
+          const n = Number(b.dataset.rate);
+          const on = n <= rating;
+          b.classList.toggle("primary", on);
+          b.setAttribute("aria-checked", String(n === rating));
+          b.textContent = `${on ? "★" : "☆"} ${n}`;
+        });
+      };
+      $$("#fbStars [data-rate]").forEach(b => {
+        b.onclick = () => { rating = Number(b.dataset.rate); S.feedbackDraft = { ...draft, rating, kind }; renderStars(); };
+      });
+      $$("#fbKinds [data-kind]").forEach(b => {
+        b.onclick = () => {
+          kind = b.dataset.kind;
+          S.feedbackDraft = { ...draft, rating, kind };
+          $$("#fbKinds [data-kind]").forEach(x => x.classList.toggle("primary", x.dataset.kind === kind));
+        };
+      });
+      $("#fbSubmit").onclick = () => {
+        const btn = $("#fbSubmit");
+        const msg = ($("#fbMsg")?.value || "").trim();
+        if (msg.length < 3) {
+          shakeButton(btn);
+          return toast("Write a few words before submitting.", "bad");
+        }
+        return withBtnState(btn, "Sending…", async () => {
+          await send("/api/feedback", {
+            kind,
+            message: msg,
+            page: "/app/feedback",
+            context: `Rating: ${rating}/5` + (draft.context ? ` | ${draft.context}` : "")
+          });
+          S.feedbackDraft = { kind: "other", context: "", rating: 5 };
+          if ($("#fbMsg")) $("#fbMsg").value = "";
+          rating = 5;
+          renderStars();
+          toast("Feedback sent! Thank you for helping improve ClipCut.", "ok");
+        }, true);
+      };
     }
 
     /* ============================================================ AI usage */
@@ -8479,8 +8555,15 @@
     async function drawSettings() {
       const box = $("#sform"); if (!box) return;
       const tab = S.stab || setTabs()[0][0], me = S.status.user;
+      const accountsOn = S.status.accounts !== false;
       box.innerHTML = `<div class="set-layout"><nav class="set-nav" aria-label="Settings sections">${setTabs().map(([k, l, i, h]) =>
-        `<a href="${pathFor("settings", k)}" class="set-link ${k === tab ? "on" : ""}" data-act="settab" data-k="${k}">${ic(i)}<span><b>${l}</b><small>${h}</small></span></a>`).join("")}</nav>
+        `<a href="${pathFor("settings", k)}" class="set-link ${k === tab ? "on" : ""}" data-act="settab" data-k="${k}">${ic(i)}<span><b>${l}</b><small>${h}</small></span></a>`).join("")}
+        <div style="height:1px;background:var(--line);margin:8px 4px"></div>
+        <button type="button" class="set-link" data-act="go" data-v="usage">${ic("chart")}<span><b>AI usage</b><small>Tokens and cost breakdown</small></span></button>
+        <button type="button" class="set-link" data-act="tour">${ic("play")}<span><b>Take the tour</b><small>Walk through the studio</small></span></button>
+        <button type="button" class="set-link" data-act="feedback">${ic("chat")}<span><b>Send feedback</b><small>Rate ClipCut or report a bug</small></span></button>
+        ${accountsOn && me ? `<button type="button" class="set-link" style="color:var(--bad)" data-act="logout">${ic("signout")}<span><b>Sign out</b><small>End your current session</small></span></button>` : ""}
+      </nav>
     <div class="set-body" id="setbody"><div class="set-load">Loading…</div></div></div>`;
       const body = $("#setbody");
       try {
@@ -8534,12 +8617,59 @@
         }
         if (tab === "speech") {
           const r = await api("/api/speech");
-          body.innerHTML = `<section class="set-sec"><h2>Speech models</h2><p class="help">ClipCut writes down what is said in a video with a speech model that runs on this computer, one per language. English is always here. Add another language to clip videos spoken in it, then choose that language when adding a video, or on a creator's Setup.</p>
-        <div class="speech-list">${r.models.map(m => `<div class="speech-row"><div class="speech-info"><b>${esc(langName(m.lang))}</b><span class="sub">${esc(m.size_mb)} MB · ${esc(m.credit)}</span>
+          const cfg = r.settings || { engine: "auto", whisper_model: "base", language: "auto" };
+          const langLabel = (r.languages || []).find(x => x.code === cfg.language)?.label || cfg.language;
+          const enReady = r.models.find(m => m.lang === "en")?.state === "ready";
+          const usingWhisper = cfg.engine === "faster-whisper" || (cfg.engine === "auto" && (cfg.language === "auto" || !r.models.some(m => m.lang === cfg.language && m.state === "ready")));
+          const activeModelText = usingWhisper
+            ? `Faster-Whisper (${cfg.whisper_model}) · ${cfg.language === "auto" ? "Auto-detect language" : langLabel}`
+            : `Sherpa-ONNX (${cfg.language === "en" ? "Parakeet TDT 0.6b" : langLabel}) · ${langLabel}`;
+          body.innerHTML = `<section class="set-sec"><h2>Speech &amp; transcription</h2><p class="help">Choose how ClipCut transcribes speech. <b>Auto</b> uses Faster-Whisper automatically when detecting the language from the video or for any language without a local Sherpa-ONNX model${enReady ? " (and Parakeet for English)" : ""}.</p>
+        <div class="ai-state" style="margin-bottom:16px"><span class="pill ok">${ic("check")}Active: ${esc(activeModelText)}</span></div>
+        <div class="ai-form" style="margin-bottom:24px">
+          <label class="f">Speech engine
+            <select id="sp_engine">
+              <option value="auto"${cfg.engine === "auto" ? " selected" : ""}>Auto (Recommended — smart model selection)</option>
+              <option value="faster-whisper"${cfg.engine === "faster-whisper" ? " selected" : ""}>Faster-Whisper (Multimodal / 99+ languages)</option>
+              <option value="sherpa"${cfg.engine === "sherpa" ? " selected" : ""}>Sherpa-ONNX (Fast per-language local models)</option>
+            </select>
+          </label>
+          <div class="f">
+            <span style="font-size:12px;font-weight:600;color:var(--dim);margin-bottom:4px;display:block">Spoken language</span>
+            <div class="row" style="gap:8px;align-items:center">
+              <select id="sp_lang" style="flex:1">
+                ${(r.languages || [{ code: "auto", label: "Auto-detect from video" }]).map(l => `<option value="${esc(l.code)}"${cfg.language === l.code ? " selected" : ""}>${esc(l.label)}</option>`).join("")}
+              </select>
+              <button type="button" class="btn sm" data-act="speechauto" title="Automatically detect the video language with Faster-Whisper">${ic("bolt")}Auto</button>
+            </div>
+            <span class="hint">Auto-detect listens to the video and picks the language automatically using Faster-Whisper.</span>
+          </div>
+          <label class="f">Faster-Whisper model size
+            <select id="sp_whisper">
+              ${(r.whisper_models || ["tiny", "base", "small", "medium", "large-v3"]).map(w => `<option value="${esc(w)}"${cfg.whisper_model === w ? " selected" : ""}>${esc(w)}${w === "base" ? " (Recommended)" : w === "large-v3" ? " (Most accurate)" : ""}</option>`).join("")}
+            </select>
+            <span class="hint">Downloaded automatically on first Faster-Whisper transcription.</span>
+          </label>
+          <div class="row"><button type="button" class="btn primary" data-act="speechsave">Save speech settings</button></div>
+        </div>
+        <h3 style="margin-bottom:8px">Available speech models</h3>
+        <p class="help">ClipCut chooses the right model automatically based on your engine and language settings above.</p>
+        <div class="speech-list">
+          <div class="speech-row">
+            <div class="speech-info">
+              <b>Faster-Whisper (Multimodal · 99+ languages)</b>
+              <span class="sub">Active size: <b>${esc(cfg.whisper_model)}</b> · Auto-detects language from video audio or transcribes any selected language (${cfg.engine === "sherpa" ? "standby" : "enabled"}).</span>
+            </div>
+            <div class="row">
+              <span class="pill ${cfg.engine === "sherpa" ? "" : "ok"}">${cfg.engine === "sherpa" ? "Standby" : `${ic("check")}Multimodal Ready`}</span>
+            </div>
+          </div>
+          ${r.models.map(m => `<div class="speech-row"><div class="speech-info"><b>${esc(langName(m.lang))}</b><span class="sub">${esc(m.size_mb)} MB · ${esc(m.credit)} · Fast local CPU/GPU model</span>
             ${m.state === "downloading" ? `<div class="bar"><i style="width:${m.percent}%"></i></div>` : ""}${m.error && m.state === "missing" ? `<span class="sub" style="color:var(--bad)">The last download failed. Check the internet connection and try again.</span>` : ""}</div>
           <div class="row">${m.state === "ready" ? `<span class="pill ok">${ic("check")}Ready</span>${m.default ? "" : `<button class="btn sm ghost" data-act="speechdel" data-v="${esc(m.lang)}">${ic("trash")}Remove</button>`}`
               : m.state === "downloading" ? `<span class="pill">Downloading ${esc(m.percent)}%</span>`
-                : `<button class="btn sm" data-act="speechget" data-v="${esc(m.lang)}">${ic("down")}Download</button>`}</div></div>`).join("")}</div></section>`;
+                : `<button class="btn sm" data-act="speechget" data-v="${esc(m.lang)}">${ic("down")}Download</button>`}</div></div>`).join("")}
+        </div></section>`;
           clearTimeout(S.speechTimer);
           if (r.models.some(m => m.state === "downloading")) S.speechTimer = setTimeout(() => { if (S.stab === "speech" && $("#sform")) drawSettings(); }, 1500);
           else if (S.speechTimer) { S.speechTimer = null; S.status = await api("/api/status"); }
@@ -8818,7 +8948,7 @@
     function drawCreatorsHub() {
       const box = $("#crhub"); if (!box) return;
       if (!S.creators.length) {
-        box.innerHTML = `<div class="empty"><img src="/brand/favicon.svg" alt=""><b>No creators yet</b>Add a creator to monitor their live streams and auto-clip moments.<div style="margin-top:12px"><button class="btn primary" data-act="newcreator">${ic("plus")}New creator</button></div></div>`;
+        box.innerHTML = `<div class="empty"><img src="/brand/mascot-dark.svg" alt=""><b>No creators yet</b>Add a creator to monitor their live streams and auto-clip moments.<div style="margin-top:12px"><button class="btn primary" data-act="newcreator">${ic("plus")}New creator</button></div></div>`;
         return;
       }
       if (!S.hubCid || !S.creators.some(x => x.id === S.hubCid)) S.hubCid = S.creators[0].id;
@@ -9019,6 +9149,17 @@
               shakeButton(b);
               throw err;
             }
+          });
+        }
+        if (a === "speechsave" || a === "speechauto") {
+          const payload = a === "speechauto"
+            ? { engine: "auto", language: "auto", whisper_model: $("#sp_whisper")?.value || "base" }
+            : { engine: $("#sp_engine")?.value, language: $("#sp_lang")?.value, whisper_model: $("#sp_whisper")?.value };
+          return withBtnState(b, "Saving…", async () => {
+            await send("/api/speech", payload, "PUT");
+            S.status = await api("/api/status");
+            toast(a === "speechauto" ? "Auto-detect enabled (Faster-Whisper)" : "Speech settings saved", "ok");
+            return drawSettings();
           });
         }
         if (a === "speechget" || a === "speechdel") {
@@ -9251,7 +9392,6 @@
         }
         if (a === "feedback") { closePops(); closeQuick(); return openFeedback("bug"); }
         if (a === "report") { closePops(); closeQuick(); return openFeedback("bug", d.ctx); }
-        if (a === "acctmenu") return openAcct();
         if (a === "bellread") return withBtnState(b, "Marking read…", async () => { await markRead(); return openBell().then(openBell); });
         if (a === "ntgo") { closePops(); const l = d.link || ""; if (l.startsWith("/app")) { const [v, tab] = fromPath(l); return go(v, tab); } if (l.startsWith("/")) location.href = l; return; }
         if (a === "csave") return withBtnState(b, "Saving…", () => saveCreator());
