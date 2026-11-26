@@ -1,15 +1,14 @@
-"""Speech models for other spoken languages (Arabic first): downloading one only when asked, removing it, choosing
-the language for a video or a creator, Arabic words, and the second machine never using the wrong language's model.
-Runs against the code directly, with its own empty data folder; nothing is downloaded."""
+"""Speech models & transcription: English Sherpa-ONNX, Faster-Whisper multilingual + auto-detect,
+downloading/removing custom models safely, language selection on videos and creators, Romanized captions,
+and the remote GPU worker never returning the wrong language's model."""
 import hashlib
 import io
 import os
-import re
 import shutil
-import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -20,7 +19,7 @@ os.environ.update(DATABASE_URL="", CLIPCUT_ACCOUNTS="0", CLIPCUT_FETCH_MODEL="0"
 sys.path.insert(0, ".")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from studio import brain, config, creators, db, fetch_model, jobs, live, server, transcribe  # noqa: E402
+from studio import auth, brain, config, creators, ctx, db, fetch_model, jobs, live, server, tools, transcribe  # noqa: E402
 
 db.init()
 fails = []
@@ -51,8 +50,42 @@ def archive(name):
     return out.getvalue()
 
 
-ARCHIVES = {k: archive(m[1]) for k, m in fetch_model.MODELS.items()}
-tampered = set()      # languages whose download is swapped for a different file
+# ---- built-in models and Faster-Whisper multimodal settings
+check("English is the built-in Sherpa-ONNX model (Arabic removed from UI list)", sorted(fetch_model.MODELS), ["en"])
+check("faster-whisper is configured for multilingual transcription", bool(config.WHISPER_MODEL and config.ASR_ENGINE), True)
+
+sp_init = c.get("/api/speech").json()
+check("speech API lists English model and Faster-Whisper metadata",
+      ([m["lang"] for m in sp_init["models"]],
+       "base" in sp_init["whisper_models"],
+       any(l["code"] == "auto" for l in sp_init["languages"])),
+      (["en"], True, True))
+check("speech settings default to auto engine and auto-detect language",
+      (sp_init["settings"]["engine"], sp_init["settings"]["language"]), ("auto", "auto"))
+
+check("wrong Origin cannot change speech settings",
+      c.put("/api/speech", json={"engine": "faster-whisper"}, headers={"Origin": "https://evil.example"}).status_code, 403)
+check("invalid speech engine is rejected",
+      c.put("/api/speech", json={"engine": "invalid"}, headers=ORIGIN).status_code, 400)
+sp_saved = c.put("/api/speech", json={"engine": "faster-whisper", "whisper_model": "small", "language": "es"}, headers=ORIGIN)
+check("speech settings can save Faster-Whisper engine, size, and language",
+      (sp_saved.status_code, sp_saved.json()["settings"]),
+      (200, {"engine": "faster-whisper", "whisper_model": "small", "language": "es"}))
+sp_auto = c.put("/api/speech", json={"engine": "auto", "language": "auto", "whisper_model": "base"}, headers=ORIGIN)
+check("Auto button restores auto engine and auto-detect language",
+      (sp_auto.status_code, sp_auto.json()["settings"]["language"]), (200, "auto"))
+
+# ---- Register a second local Sherpa model transiently to verify downloader, SHA-256, locks, and remote checks
+test_ar_name = "sherpa-onnx-test-ar-int8"
+test_ar_arch = archive(test_ar_name)
+test_en_arch = archive(fetch_model.MODELS["en"][1])
+ARCHIVES = {"en": test_en_arch, "ar": test_ar_arch}
+tampered = set()
+
+fetch_model.MODELS["ar"] = ("Arabic", test_ar_name, "https://mirror.example/ar.tar.bz2", 107,
+                            "FastConformer Arabic (test)", hashlib.sha256(test_ar_arch).hexdigest())
+fetch_model._locks["ar"] = threading.Lock()
+fetch_model.state["ar"] = {"doing": False, "percent": 0, "error": ""}
 
 
 class Answer(io.BytesIO):
@@ -67,28 +100,17 @@ def fake_open(url, timeout=None):
     return Answer(ARCHIVES[lang] + (b"changed" if lang in tampered else b""))
 
 
-# ---- the list of models, and where Arabic comes from
-check("English and Arabic are known", sorted(fetch_model.MODELS), ["ar", "en"])
-check("faster-whisper is configured for multilingual transcription", bool(config.WHISPER_MODEL and config.ASR_ENGINE), True)
-mirror = subprocess.run([sys.executable, "-c", "from studio import fetch_model as f; print(f.MODELS['ar'][2]); print(f.MODELS['ar'][5])"],
-                        env={**os.environ, "CLIPCUT_ASR_MODEL_AR_URL": "https://mirror.example/ar.tar.bz2", "CLIPCUT_ASR_MODEL_AR_SHA256": "a" * 64},
-                        capture_output=True, text=True).stdout.split()
-check("a custom Arabic model URL and SHA-256 can be set via env",
-      mirror, ["https://mirror.example/ar.tar.bz2", "a" * 64])
-real_ar = fetch_model.MODELS["ar"]
-# From here on the stand-in archive is "the real file": its fingerprint is the one expected.
-fetch_model.MODELS["ar"] = real_ar[:5] + (hashlib.sha256(ARCHIVES["ar"]).hexdigest(),)
 fetch_model.urllib.request.urlopen = fake_open
 check("each language has its own folder", fetch_model.folder("ar") != fetch_model.folder("en"), True)
 check("nothing is here to begin with", (fetch_model.status("en"), fetch_model.status("ar")), ("missing", "missing"))
 
-# ---- Arabic is never downloaded unless someone asks
 try:
     fetch_model.ensure("ar", start=False)
     said = ""
 except RuntimeError as e:
     said = str(e)
-check("a video needing Arabic says what to do instead of downloading", ("Speech models" in said, downloads), (True, []))
+check("a video needing an un-downloaded local model says what to do instead of downloading",
+      ("Speech models" in said, downloads), (True, []))
 try:
     transcribe._new("ar")
     said = ""
@@ -98,12 +120,14 @@ check("...and so does loading the model for transcribing", ("Speech models" in s
 
 # ---- the routes: list, download, remove
 r = c.get("/api/speech").json()["models"]
-check("the page lists both languages with their size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
+check("the page lists registered local models with their size",
+      [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
       [("en", "missing", True), ("ar", "missing", True)])
 check("an unknown language is refused", c.post("/api/speech/xx", headers=ORIGIN).status_code, 400)
-check("another website cannot start a download", c.post("/api/speech/ar", headers={"Origin": "https://evil.example"}).status_code, 403)
+check("another website cannot start a download",
+      c.post("/api/speech/ar", headers={"Origin": "https://evil.example"}).status_code, 403)
 check("...and nothing was downloaded", downloads, [])
-tampered.add("ar")         # the file at the address was changed: it must not be unpacked
+tampered.add("ar")
 try:
     fetch_model.ensure("ar")
     said = ""
@@ -111,50 +135,63 @@ except RuntimeError as e:
     said = str(e)
 check("a downloaded file with the wrong fingerprint is refused, in plain words",
       ("not the one it expects" in said and "Nothing was unpacked" in said, fetch_model.ready("ar")), (True, False))
-check("...it says which fingerprint it got and which it expected", fetch_model.MODELS["ar"][5] in said and "SHA-256" in said, True)
-check("...the reason is shown on the Speech models page", "not the expected one" in fetch_model.state["ar"]["error"], True)
-check("...and nothing is left behind", sorted(p.name for p in config.MODELS_DIR.iterdir()) if config.MODELS_DIR.exists() else [], [])
+check("...it says which fingerprint it got and which it expected",
+      fetch_model.MODELS["ar"][5] in said and "SHA-256" in said, True)
+check("...the reason is shown on the Speech models page",
+      "not the expected one" in fetch_model.state["ar"]["error"], True)
+check("...and nothing is left behind",
+      sorted(p.name for p in config.MODELS_DIR.iterdir()) if config.MODELS_DIR.exists() else [], [])
 tampered.clear()
 downloads.clear()
-check("the owner can start the Arabic download", c.post("/api/speech/ar", headers=ORIGIN).status_code, 200)
+check("the owner can start a model download", c.post("/api/speech/ar", headers=ORIGIN).status_code, 200)
 for _ in range(100):
     if fetch_model.status("ar") == "ready":
         break
     time.sleep(0.05)
-check("Arabic arrives whole, in its own folder", (fetch_model.ready("ar"), sorted(p.name for p in fetch_model.folder("ar").iterdir())),
+check("downloaded model arrives whole, in its own folder",
+      (fetch_model.ready("ar"), sorted(p.name for p in fetch_model.folder("ar").iterdir())),
       (True, ["decoder.int8.onnx", "encoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]))
 check("English was not touched", fetch_model.ready("en"), False)
-check("nothing is left over from the download", sorted(p.name for p in config.MODELS_DIR.iterdir()), [fetch_model.MODELS["ar"][1]])
-check("the status tells every page Arabic is ready", c.get("/api/status").json()["speech"]["ar"]["state"], "ready")
+check("nothing is left over from the download",
+      sorted(p.name for p in config.MODELS_DIR.iterdir()), [fetch_model.MODELS["ar"][1]])
+check("the status tells every page the downloaded model is ready",
+      c.get("/api/status").json()["speech"]["ar"]["state"], "ready")
 check("asking again downloads nothing more", (c.post("/api/speech/ar", headers=ORIGIN).status_code, len(downloads)), (200, 1))
 check("English can't be removed", c.delete("/api/speech/en", headers=ORIGIN).status_code, 400)
 
-transcribe._pool("ar").made += 1                  # pretend a video is transcribing in Arabic right now
-check("a model in use is not removed", (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.ready("ar")), (409, True))
+transcribe._pool("ar").made += 1
+check("a model in use is not removed",
+      (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.ready("ar")), (409, True))
 transcribe._pool("ar").made -= 1
-check("Arabic can be removed when nothing uses it", (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.folder("ar").exists()), (200, False))
+check("optional model can be removed when nothing uses it",
+      (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.folder("ar").exists()), (200, False))
 
-# ---- choosing the language
-check("a video can be marked as Arabic", jobs.clean_options({"lang": "ar"}), {"lang": "ar"})
+# ---- choosing the language (multilingual + auto-detect + validation)
+check("a video can be marked as auto-detect", jobs.clean_options({"lang": "auto"}), {"lang": "auto"})
+check("a video can be marked with any Faster-Whisper language", jobs.clean_options({"lang": "es"}), {"lang": "es"})
 check("an unknown language becomes English", jobs.clean_options({"lang": "xx"}), {"lang": "en"})
-check("videos are English unless chosen", jobs.DEFAULTS["lang"], "en")
-check("a creator can speak Arabic", creators._clean({"lang": "ar"}), {"lang": "ar"})
+check("videos default to English unless chosen", jobs.DEFAULTS["lang"], "en")
+check("a creator can speak Spanish or Arabic",
+      (creators._clean({"lang": "es"}), creators._clean({"lang": "ar"})), ({"lang": "es"}, {"lang": "ar"}))
 check("...but not a made-up language", creators._clean({"lang": "<b>"}), {"lang": "en"})
 r = c.post("/api/creators", json={"name": "Arabic speaker"}, headers=ORIGIN)
 cid = r.json()["id"]
 c.put(f"/api/creators/{cid}", json={"lang": "ar"}, headers=ORIGIN)
-from studio import auth, ctx  # noqa: E402
 with ctx.as_user(auth.local_user().id):
     cr = creators.get(cid)
     check("the creator's language is kept", cr.get("lang"), "ar")
+    real_missing = tools.missing
+    tools.missing = lambda: []
     try:
         live.start_session(cr, "https://www.twitch.tv/someone")
         said = ""
     except ValueError as e:
         said = str(e)
-    check("recording an Arabic creator without the model says what to do", "Speech models" in said, True)
+    finally:
+        tools.missing = real_missing
+    check("recording a creator whose local model isn't ready says what to do", "Speech models" in said, True)
 
-# ---- Arabic words
+# ---- Arabic words & Romanization
 tokens = ["▁ال", "ك", "ت", "ا", "بُ", "▁جـ", "ميل", "،", "▁ok"]
 words = transcribe._words(tokens, [0.0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 1.0], 0, 32000)
 check("Arabic pieces join into words, vowel marks and the stretching line removed, punctuation kept",
@@ -165,10 +202,10 @@ from studio import roman  # noqa: E402
 check("Arabic without the AI is spelled in Roman letters the caption font can draw, hamza and commas too",
       roman.to_roman("قابلت نوران أنا، إن شاء الله؟"), lambda t: not roman.OTHER_SCRIPT.search(t) and "," in t and "?" in t)
 
-# ---- the AI is told about English words in Arabic letters, only when the transcript is in Arabic letters
 arabic = "[1] " + "مرحبا بكم في الحلقة الجديدة سبسكرايب " * 3
 check("an Arabic transcript gets the note", brain.ARABIC_NOTE in brain._rules(15, 60, arabic), True)
 check("an English one does not", brain.ARABIC_NOTE in brain._rules(15, 60, "[1] hello and welcome back " * 5), False)
+
 
 # ---- the second machine: never the wrong language's model
 class Reply:
@@ -187,7 +224,7 @@ import httpx  # noqa: E402
 real_post = httpx.post
 piece = [transcribe.np.zeros(16000, dtype="float32")]
 old = {"pieces": [{"tokens": ["▁hi"], "timestamps": [0.0]}]}
-httpx.post = lambda *a, **k: Reply(200, old)               # an older machine: answers in English, says no language
+httpx.post = lambda *a, **k: Reply(200, old)
 try:
     transcribe._decode_remote(piece, "ar")
     got = "used"
@@ -205,6 +242,11 @@ check("a machine without the Arabic model says so", got, "refused")
 httpx.post = lambda *a, **k: Reply(200, dict(old, lang="ar"))
 check("a machine with the Arabic model is used", transcribe._decode_remote(piece, "ar"), [(["▁hi"], [0.0])])
 httpx.post = real_post
+
+# Restore MODELS to built-in default
+fetch_model.MODELS.pop("ar", None)
+fetch_model._locks.pop("ar", None)
+fetch_model.state.pop("ar", None)
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 shutil.rmtree(os.environ["CLIPCUT_DATA"], ignore_errors=True)

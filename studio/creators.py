@@ -101,8 +101,8 @@ def _clean(data: dict) -> dict:
         elif k == "privacy":
             v = v if v in ("public", "unlisted", "private") else "public"
         elif k == "lang":
-            from . import fetch_model
-            v = v if fetch_model.known(v) else "en"
+            from . import transcribe
+            v = v if transcribe.known_language(v) else "en"
         else:
             v = str(v).strip()[:300]
         out[k] = v

@@ -140,7 +140,7 @@ def clean_options(options) -> dict:
         elif k == "aspect":
             v = v if v in render.ASPECTS else DEFAULTS["aspect"]
         elif k == "lang":
-            v = v if fetch_model.known(v) else DEFAULTS["lang"]
+            v = v if transcribe.known_language(v) else DEFAULTS["lang"]
         else:                                    # range_start, range_end: seconds into the video
             v = float(v)
             if not math.isfinite(v) or v < 0:

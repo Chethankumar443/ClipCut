@@ -339,6 +339,14 @@ SPEECH_LANGUAGES = (
     ("id", "Indonesian"),
 )
 _SPEECH_LANG_SET = {k for k, _ in SPEECH_LANGUAGES}
+
+
+def known_language(lang: str) -> bool:
+    """True when `lang` is 'auto', a supported Faster-Whisper language, or a registered Sherpa-ONNX model."""
+    code = str(lang or "").strip().lower()
+    return code in _SPEECH_LANG_SET or fetch_model.known(code)
+
+
 _whisper_models: dict = {}
 _whisper_lock = threading.Lock()
 
