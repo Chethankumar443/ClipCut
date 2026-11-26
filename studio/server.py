@@ -379,7 +379,8 @@ def robots():
 @app.get("/sitemap.xml")
 def sitemap():
     day = time.strftime("%Y-%m-%d")
-    pages = [("/", "1.0", "weekly"), ("/signup", "0.8", "monthly"), ("/login", "0.4", "monthly"), ("/terms", "0.3", "yearly"),
+    pages = [("/", "1.0", "weekly"), ("/docs", "0.9", "weekly"), ("/docs/quickstart", "0.8", "monthly"),
+             ("/signup", "0.8", "monthly"), ("/login", "0.4", "monthly"), ("/terms", "0.3", "yearly"),
              ("/privacy", "0.3", "yearly"), ("/acceptable-use", "0.2", "yearly")]
     body = "".join(f"<url><loc>{config.PUBLIC_URL}{u}</loc><lastmod>{day}</lastmod><changefreq>{c}</changefreq>"
                    f"<priority>{p}</priority></url>" for u, p, c in pages)

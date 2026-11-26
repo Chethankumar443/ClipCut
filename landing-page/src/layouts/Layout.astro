@@ -4,12 +4,41 @@ import "../styles/global.css";
 interface Props {
   title?: string;
   description?: string;
+  keywords?: string;
 }
 
 const {
-  title = "ClipCut — AI Video Clipping Studio",
-  description = "Turn Twitch, Kick, and YouTube live streams, podcasts, and long-form videos into captioned, publish-ready vertical clips. Free, open source, and self-hosted.",
+  title = "ClipCut — Open-Source AI Video Clipping Studio (YouTube Shorts, Reels, TikTok)",
+  description = "Free, open-source, self-hosted OpusClip alternative. Turn YouTube, Twitch, and Kick streams, podcasts, and long-form videos into captioned vertical 9:16 clips with Faster-Whisper, librosa energy peaks, and your AI key.",
+  keywords = "AI video clipper, open source OpusClip alternative, self-hosted video clipping studio, YouTube Shorts generator, TikTok clip maker, Instagram Reels generator, Twitch live stream auto clipper, Kick VOD clipper, Faster-Whisper video captions, podcast highlight extractor, AI viral hook detector, FFmpeg vertical video editor, automated captions",
 } = Astro.props;
+
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://clipcut.vercel.app").toString();
+const siteOrigin = new URL("/", Astro.site ?? "https://clipcut.vercel.app").toString().replace(/\/+$/, "");
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "ClipCut",
+  applicationCategory: "MultimediaApplication",
+  operatingSystem: "Windows, macOS, Linux, Docker",
+  url: siteOrigin,
+  downloadUrl: "https://github.com/Chethankumar443/ClipCut",
+  license: "https://opensource.org/licenses/MIT",
+  description,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  featureList: [
+    "Self-hosted AI video clipping for YouTube, Twitch, Kick, and local files",
+    "YouTube Most-Replayed heatmap and librosa vocal energy hook scoring",
+    "Faster-Whisper multimodal speech recognition with auto language detection",
+    "Interactive playhead-synced word editor and animated Bounce, Hype, and Clean captions",
+    "Gaming Mode for 23+ games with automatic facecam framing and BGM auto-ducking",
+  ],
+};
 ---
 
 <!doctype html>
@@ -19,8 +48,31 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#09090B" />
+    <meta name="keywords" content={keywords} />
+    <meta name="author" content="Chethan Kumar Jagadish Ulavi" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="theme-color" content="#0d0a08" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
     <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg?v=3" />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="ClipCut" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={`${siteOrigin}/brand/clipcut-logo.png`} />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={`${siteOrigin}/brand/clipcut-logo.png`} />
+
+    <!-- Structured Data -->
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

@@ -5,12 +5,23 @@
   <img src="clipcut-logo-dark.svg" alt="ClipCut" width="520" />
 </picture>
 
-**Turn long-form videos, podcasts, and live streams into captioned, publish-ready short clips.**
+**Turn long-form videos, podcasts, and live streams into captioned, publish-ready YouTube Shorts, Instagram Reels, and TikTok clips — locally and for free.**
 
 [![CI](https://github.com/Chethankumar443/ClipCut/actions/workflows/ci.yml/badge.svg)](https://github.com/Chethankumar443/ClipCut/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![Landing Page](https://img.shields.io/badge/Landing%20Page-Astro%20%2B%20React-ff7a2f.svg)](landing-page/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
+[![yt-dlp](https://img.shields.io/badge/yt--dlp-FF0000?logo=youtube&logoColor=white)](https://github.com/yt-dlp/yt-dlp)
+[![Faster-Whisper](https://img.shields.io/badge/Faster--Whisper-Multilingual%20ASR-111111)](https://github.com/SYSTRAN/faster-whisper)
+[![Sherpa-ONNX](https://img.shields.io/badge/Sherpa--ONNX-Parakeet%200.6b-2B5B84)](https://github.com/k2-fsa/sherpa-onnx)
+[![librosa](https://img.shields.io/badge/librosa-Audio%20Energy-ff7a2f)](https://librosa.org/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-SQLite%20%7C%20PostgreSQL-D71F00?logo=postgresql&logoColor=white)](https://www.sqlalchemy.org/)
+[![Astro 5](https://img.shields.io/badge/Astro-5-BC52EE?logo=astro&logoColor=white)](landing-page/)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](landing-page/)
+[![Tailwind CSS v4](https://img.shields.io/badge/Tailwind%20CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](landing-page/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![Vercel](https://img.shields.io/badge/Vercel-Ready-000000?logo=vercel&logoColor=white)](landing-page/vercel.json)
 
 </div>
 
@@ -18,7 +29,7 @@
 
 ## Table of Contents
 
-- [Overview](#overview)
+- [About ClipCut](#about-clipcut)
 - [How the Pipeline Works](#how-the-pipeline-works)
 - [Key Features](#key-features)
 - [Supported AI Providers](#supported-ai-providers)
@@ -33,11 +44,14 @@
 
 ---
 
-## Overview
+## About ClipCut
 
-**ClipCut** is a free, open-source, self-hosted AI video clipping studio built with **FastAPI**, **FFmpeg**, **yt-dlp**, **librosa**, **sherpa-onnx**, and **faster-whisper**.
+**ClipCut** is a free, **open-source OpusClip alternative** and **self-hosted AI video clipping studio** built with **FastAPI**, **FFmpeg**, **yt-dlp**, **librosa**, **sherpa-onnx**, and **faster-whisper**.
 
-Paste a **YouTube**, **Twitch**, or **Kick** link, upload a local video file (with resumable chunked uploads for multi-gigabyte recordings), or monitor live streams 24/7. ClipCut automatically transcribes speech in 99+ languages, detects vocal energy spikes, YouTube Most-Replayed sectors, live chat bursts, and streamer facial expressions, synthesizes viral opening hooks, renders animated multi-aspect clips (`9:16`, `1:1`, `16:9`) locally, and lets you refine timing, captions, and background music before downloading or publishing directly.
+Designed for creators, streamers, editors, and agencies looking for an automated **YouTube Shorts generator**, **TikTok clip maker**, **Instagram Reels generator**, or **podcast highlight extractor** with zero subscriptions or watermarks:
+
+- Paste any **YouTube**, **Twitch**, or **Kick** video/VOD URL, upload multi-gigabyte local files via resumable chunked uploads, or monitor live streams 24/7.
+- Automatically transcribe speech in **99+ languages** (`faster-whisper` multimodal auto-detect or local `sherpa-onnx` Parakeet 0.6b), detect vocal energy spikes (`librosa`), read **YouTube Most-Replayed** trending sectors, score live chat bursts and streamer facial expressions, synthesize viral hooks autonomously, and render vertical `9:16`, square `1:1`, or landscape `16:9` clips with animated word-level captions and BGM auto-ducking.
 
 ---
 
