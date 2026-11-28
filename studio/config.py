@@ -128,15 +128,9 @@ YT_TRANSCRIPT = env("CLIPCUT_YT_TRANSCRIPT", "1") != "0"
 # YouTube often refuses servers in data centres ("sign in to confirm you're not a bot"). Cookies from a signed-in
 # YouTube account get past that: an admin pastes them under Settings, Connected apps, and they are kept in this file.
 YT_COOKIES = Path(env("CLIPCUT_YT_COOKIES") or DATA_DIR / "youtube-cookies.txt")
-# the compact model for processors; a machine with a graphics card sets CLIPCUT_ASR_MODEL to the full-precision one
-ASR_MODEL_NAME = env("CLIPCUT_ASR_MODEL", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
-ASR_MODEL_DIR = MODELS_DIR / ASR_MODEL_NAME
-# Multilingual / Arabic speech transcription uses faster-whisper by default (or a custom sherpa-onnx model via env).
-ASR_ENGINE = env("CLIPCUT_ASR_ENGINE", "auto").strip().lower()
-WHISPER_MODEL = env("CLIPCUT_WHISPER_MODEL", "base").strip()
-ASR_MODEL_AR = env("CLIPCUT_ASR_MODEL_AR", "sherpa-onnx-nemo-fastconformer-ar-int8")
-ASR_MODEL_AR_URL = env("CLIPCUT_ASR_MODEL_AR_URL", "").strip()
-ASR_MODEL_AR_SHA256 = env("CLIPCUT_ASR_MODEL_AR_SHA256", "").strip().lower()
+# Speech transcription uses Faster-Whisper by default: one multi-language model handles 99+ languages and auto-detect.
+ASR_ENGINE = env("CLIPCUT_ASR_ENGINE", "faster-whisper").strip().lower() or "faster-whisper"
+WHISPER_MODEL = env("CLIPCUT_WHISPER_MODEL", "base").strip().lower() or "base"
 DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'clipcut.db').as_posix()}"
 # Commercials and "be right back" screens are stitched into streams. A clip taken from one is worthless, so those
 # seconds can be found and left out. It is off by default: it reads the whole video once, which is not free, and

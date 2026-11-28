@@ -16,7 +16,7 @@ const { title, description, currentPath, section = "Documentation" } = Astro.pro
 ---
 
 <Layout title={`${title} — ClipCut Docs`} description={description}>
-  <div class="flex min-h-screen flex-col bg-[#0d0a08]">
+  <div class="flex min-h-screen flex-col bg-black">
     <Navbar client:load active="docs" />
 
     <div class="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 gap-10 px-6 pt-12 pb-20 lg:grid-cols-[260px_1fr]">
@@ -25,7 +25,7 @@ const { title, description, currentPath, section = "Documentation" } = Astro.pro
       </aside>
 
       <article class="min-w-0">
-        <div class="mb-6 flex items-center gap-2 font-mono text-xs text-[#8f8176]">
+        <div class="mb-6 flex items-center gap-2 text-xs font-medium text-[#8f8176]">
           <a href="/docs" class="transition-colors hover:text-[#fbf7f2]">Docs</a>
           <ChevronRight className="h-3.5 w-3.5" />
           <span class="text-[#b5a79c]">{section}</span>
@@ -40,7 +40,7 @@ const { title, description, currentPath, section = "Documentation" } = Astro.pro
           </p>
         )}
 
-        <div class="mt-10 space-y-8 border-t border-[#fff4e8]/10 pt-8 text-sm leading-relaxed text-[#d7cbc0] sm:text-base [&_h2]:mt-10 [&_h2]:font-serif [&_h2]:text-2xl [&_h2]:text-[#fbf7f2] [&_h3]:mt-6 [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-[#fbf7f2] [&_code]:rounded [&_code]:bg-[#fff4e8]/8 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs [&_code]:text-[#ff9a5c] [&_pre]:overflow-x-auto [&_pre]:rounded-2xl [&_pre]:border [&_pre]:border-[#fff4e8]/10 [&_pre]:bg-[#15100d] [&_pre]:p-5 [&_pre]:font-mono [&_pre]:text-xs [&_pre]:leading-7 [&_pre]:text-[#e4dad0] [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit [&_ul]:list-disc [&_ul]:space-y-2 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-2 [&_ol]:pl-5">
+        <div class="mt-10 space-y-8 border-t border-white/10 pt-8 text-sm leading-relaxed text-[#d7cbc0] sm:text-base [&_h2]:mt-10 [&_h2]:font-serif [&_h2]:text-2xl [&_h2]:text-[#fbf7f2] [&_h3]:mt-6 [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-[#fbf7f2] [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-medium [&_code]:text-[#ff9a5c] [&_pre]:overflow-x-auto [&_pre]:rounded-2xl [&_pre]:border [&_pre]:border-white/10 [&_pre]:bg-[#060606] [&_pre]:p-5 [&_pre]:text-xs [&_pre]:leading-7 [&_pre]:text-[#e4dad0] [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit [&_ul]:list-disc [&_ul]:space-y-2 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-2 [&_ol]:pl-5">
           <slot />
         </div>
       </article>

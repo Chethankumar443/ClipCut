@@ -1,15 +1,50 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { onContentVisibilityChange, onScrollEnd, prefersReducedMotion, subscribeReducedMotion } from '../../lib/modernWeb';
 
 import './ScrollExpand.css';
 
-const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 
-const smoothstep = (edge0, edge1, x) => {
+const smoothstep = (edge0: number, edge1: number, x: number) => {
   const t = clamp((x - edge0) / (edge1 - edge0 || 1e-6), 0, 1);
   return t * t * (3 - 2 * t);
 };
+
+interface ScrollExpandConfig {
+  startWidth: number;
+  startHeight: number;
+  startRadius: number;
+  endRadius: number;
+  mediaZoom: number;
+  scrollDistance: number;
+  holdDistance: number;
+  smoothing: number;
+  overlayScrim: number;
+  useWindowScroll: boolean;
+  enabled: boolean;
+}
+
+export interface ScrollExpandProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> {
+  src?: string;
+  mediaType?: 'image' | 'video';
+  poster?: string;
+  alt?: string;
+  title?: React.ReactNode;
+  scrollHint?: React.ReactNode;
+  startWidth?: number;
+  startHeight?: number;
+  startRadius?: number;
+  endRadius?: number;
+  mediaZoom?: number;
+  scrollDistance?: number;
+  holdDistance?: number;
+  smoothing?: number;
+  overlayScrim?: number;
+  useWindowScroll?: boolean;
+  enabled?: boolean;
+}
 
 const ScrollExpand = ({
   src = '',
@@ -33,18 +68,31 @@ const ScrollExpand = ({
   className = '',
   style,
   ...rest
-}) => {
-  const rootRef = useRef(null);
-  const trackRef = useRef(null);
-  const stageRef = useRef(null);
-  const frameRef = useRef(null);
-  const mediaRef = useRef(null);
-  const titleRef = useRef(null);
-  const overlayRef = useRef(null);
-  const scrimRef = useRef(null);
-  const hintRef = useRef(null);
+}: ScrollExpandProps) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const mediaRef = useRef<HTMLVideoElement & HTMLImageElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
+  const hintRef = useRef<HTMLDivElement>(null);
 
-  const propsRef = useRef({});
+  const propsRef = useRef<ScrollExpandConfig>({
+    startWidth,
+    startHeight,
+    startRadius,
+    endRadius,
+    mediaZoom,
+    scrollDistance,
+    holdDistance,
+    smoothing,
+    overlayScrim,
+    useWindowScroll,
+    enabled
+  });
+  const lastProgressRef = useRef(-1);
   propsRef.current = {
     startWidth,
     startHeight,
@@ -59,7 +107,9 @@ const ScrollExpand = ({
     enabled
   };
 
-  const applyProgress = useCallback(p => {
+  const applyProgress = useCallback((p: number) => {
+    if (Math.abs(p - lastProgressRef.current) < 0.0001) return;
+    lastProgressRef.current = p;
     const frame = frameRef.current;
     const media = mediaRef.current;
     if (!frame || !media) return;
@@ -103,13 +153,25 @@ const ScrollExpand = ({
     const stage = stageRef.current;
     if (!root || !track || !stage) return;
 
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let reduceMotion = prefersReducedMotion();
 
     let raf = 0;
     let current = 0;
     let target = 0;
     let stageH = 0;
     let running = false;
+    let visible = true;
+    let skipped = false;
+
+    const syncVideo = () => {
+      const el = mediaRef.current;
+      if (!(el instanceof HTMLVideoElement)) return;
+      if (reduceMotion || !visible || skipped || document.hidden) {
+        el.pause();
+      } else if (el.paused) {
+        el.play().catch(() => {});
+      }
+    };
 
     const measure = () => {
       const c = propsRef.current;
@@ -172,17 +234,60 @@ const ScrollExpand = ({
     target = readProgress();
     current = target;
     applyProgress(current);
+    syncVideo();
 
     const scroller = useWindowScroll ? window : root;
+    const unsubScrollEnd = onScrollEnd(scroller, () => {
+      target = readProgress();
+      if (propsRef.current.smoothing <= 0 || reduceMotion) {
+        current = target;
+        applyProgress(current);
+      } else {
+        kick();
+      }
+    });
+    const io =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(entries => {
+            visible = entries.some(entry => entry.isIntersecting);
+            syncVideo();
+          })
+        : null;
+    io?.observe(root);
+    const unsubContentVis = onContentVisibilityChange(root, isSkipped => {
+      skipped = isSkipped;
+      syncVideo();
+    });
+    const unsubReduce = subscribeReducedMotion(matches => {
+      reduceMotion = matches;
+      syncVideo();
+      if (matches) {
+        if (raf) {
+          cancelAnimationFrame(raf);
+          raf = 0;
+        }
+        running = false;
+        current = target = readProgress();
+        applyProgress(current);
+      }
+    });
+    const onVisibility = () => syncVideo();
+
     scroller.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onResize);
+    document.addEventListener('visibilitychange', onVisibility);
     const ro = new ResizeObserver(onResize);
     ro.observe(root);
 
     return () => {
       if (raf) cancelAnimationFrame(raf);
+      unsubScrollEnd();
+      io?.disconnect();
+      unsubContentVis();
+      unsubReduce();
       scroller.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
+      document.removeEventListener('visibilitychange', onVisibility);
       ro.disconnect();
     };
   }, [applyProgress, useWindowScroll]);
@@ -194,10 +299,13 @@ const ScrollExpand = ({
         className="scroll-expand__media"
         src={src}
         poster={poster}
+        width={720}
+        height={1280}
         autoPlay
         muted
         loop
         playsInline
+        preload="metadata"
       />
     ) : (
       <img ref={mediaRef} className="scroll-expand__media" src={src} alt={alt} draggable={false} />

@@ -43,7 +43,7 @@ const ITEMS = [
 
 export default function DocsSidebar({ currentPath }: DocsSidebarProps) {
   return (
-    <div className="rounded-2xl border border-[#fff4e8]/10 bg-[#15100d] p-5">
+    <div className="rounded-2xl border border-white/10 bg-[#060606] p-5">
       <BranchedMenu
         items={ITEMS}
         defaultOpen={[0, 1, 2]}

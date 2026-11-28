@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { prefersReducedMotion, subscribeReducedMotion } from "../../lib/modernWeb";
 
 interface AnimatedGroupProps {
   children: React.ReactNode;
@@ -13,10 +14,21 @@ export function AnimatedGroup({
 }: AnimatedGroupProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
+    const reduced = prefersReducedMotion();
+    setReduceMotion(reduced);
+    const unsubReduce = subscribeReducedMotion((matches) => {
+      setReduceMotion(matches);
+      if (matches) setVisible(true);
+    });
+
     const el = ref.current;
-    if (!el) return;
+    if (!el || reduced || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return unsubReduce;
+    }
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -27,7 +39,10 @@ export function AnimatedGroup({
       { threshold: 0.08 }
     );
     obs.observe(el);
-    return () => obs.disconnect();
+    return () => {
+      obs.disconnect();
+      unsubReduce();
+    };
   }, []);
 
   const items = React.Children.toArray(children);
@@ -39,9 +54,10 @@ export function AnimatedGroup({
           key={idx}
           className="h-full transition-all duration-700 ease-out"
           style={{
-            transitionDelay: `${idx * staggerMs}ms`,
+            transitionDelay: reduceMotion ? "0ms" : `${idx * staggerMs}ms`,
+            transitionDuration: reduceMotion ? "150ms" : undefined,
             opacity: visible ? 1 : 0,
-            transform: visible ? "translateY(0px) scale(1)" : "translateY(20px) scale(0.98)",
+            transform: reduceMotion || visible ? "translateY(0px) scale(1)" : "translateY(20px) scale(0.98)",
           }}
         >
           {child}

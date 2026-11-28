@@ -8,37 +8,68 @@ interface Props {
 }
 
 const {
-  title = "ClipCut — Open-Source AI Video Clipping Studio (YouTube Shorts, Reels, TikTok)",
-  description = "Free, open-source, self-hosted OpusClip alternative. Turn YouTube, Twitch, and Kick streams, podcasts, and long-form videos into captioned vertical 9:16 clips with Faster-Whisper, librosa energy peaks, and your AI key.",
-  keywords = "AI video clipper, open source OpusClip alternative, self-hosted video clipping studio, YouTube Shorts generator, TikTok clip maker, Instagram Reels generator, Twitch live stream auto clipper, Kick VOD clipper, Faster-Whisper video captions, podcast highlight extractor, AI viral hook detector, FFmpeg vertical video editor, automated captions",
+  title = "ClipCut — Turn Long Videos Into Viral Shorts, Reels & TikToks Free",
+  description = "Drop a YouTube, Twitch, or Kick link and extract viral vertical 9:16 clips automatically. Free, open-source OpusClip alternative with Faster-Whisper in 99+ languages, vocal peak detection, and zero watermarks.",
+  keywords = "AI video clipper, free OpusClip alternative, open source AI Shorts generator, auto TikTok clip maker, Instagram Reels clip generator, Twitch stream auto clipper, Kick VOD clipper, Faster-Whisper captions, viral hook detector, self-hosted video studio",
 } = Astro.props;
 
-const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://clipcut.vercel.app").toString();
-const siteOrigin = new URL("/", Astro.site ?? "https://clipcut.vercel.app").toString().replace(/\/+$/, "");
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://clip-cut-alpha.vercel.app").toString();
+const siteOrigin = new URL("/", Astro.site ?? "https://clip-cut-alpha.vercel.app").toString().replace(/\/+$/, "");
 
-const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "ClipCut",
-  applicationCategory: "MultimediaApplication",
-  operatingSystem: "Windows, macOS, Linux, Docker",
-  url: siteOrigin,
-  downloadUrl: "https://github.com/Chethankumar443/ClipCut",
-  license: "https://opensource.org/licenses/MIT",
-  description,
-  offers: {
-    "@type": "Offer",
-    price: "0",
-    priceCurrency: "USD",
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "ClipCut",
+    url: siteOrigin,
+    description,
   },
-  featureList: [
-    "Self-hosted AI video clipping for YouTube, Twitch, Kick, and local files",
-    "YouTube Most-Replayed heatmap and librosa vocal energy hook scoring",
-    "Faster-Whisper multimodal speech recognition with auto language detection",
-    "Interactive playhead-synced word editor and animated Bounce, Hype, and Clean captions",
-    "Gaming Mode for 23+ games with automatic facecam framing and BGM auto-ducking",
-  ],
-};
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "ClipCut",
+    applicationCategory: "MultimediaApplication",
+    operatingSystem: "Windows, macOS, Linux, Docker",
+    url: siteOrigin,
+    downloadUrl: "https://github.com/Chethankumar443/ClipCut",
+    license: "https://opensource.org/licenses/MIT",
+    description,
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+    },
+    featureList: [
+      "Turn YouTube, Twitch, Kick VODs, and local recordings into captioned 9:16 vertical Shorts",
+      "YouTube Most-Replayed viewer heatmap and librosa vocal energy hook detection",
+      "Single multi-language Faster-Whisper speech recognition with auto language detection (99+ languages)",
+      "Playhead-synced word editor with animated Bounce, Hype, and Clean captions",
+      "Gaming Mode for 23+ games with automatic facecam framing and BGM sidechain ducking",
+    ],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "What does ClipCut cost?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "ClipCut is 100% free and MIT-licensed. Bring your own API key (Gemini, OpenAI, Claude, Grok, Groq, OpenRouter) or run completely free locally with Ollama.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Which video sources and languages does ClipCut support?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Paste YouTube, Twitch, or Kick links, upload local video files, or monitor live streams. Faster-Whisper automatically detects and transcribes 99+ languages from one model.",
+        },
+      },
+    ],
+  },
+];
 ---
 
 <!doctype html>
@@ -51,7 +82,7 @@ const jsonLd = {
     <meta name="keywords" content={keywords} />
     <meta name="author" content="Chethan Kumar Jagadish Ulavi" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-    <meta name="theme-color" content="#0d0a08" />
+    <meta name="theme-color" content="#000000" />
     <link rel="canonical" href={canonicalUrl} />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
     <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg?v=3" />
@@ -63,6 +94,7 @@ const jsonLd = {
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content={`${siteOrigin}/brand/clipcut-logo.png`} />
+    <meta property="og:image:alt" content="ClipCut Open-Source AI Video Clipping Studio" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -76,11 +108,11 @@ const jsonLd = {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
   </head>
-  <body class="bg-background text-foreground antialiased selection:bg-[#ff7a2f]/30 selection:text-white">
+  <body class="bg-black text-foreground antialiased selection:bg-[#ff7a2f]/30 selection:text-white">
     <slot />
   </body>
 </html>

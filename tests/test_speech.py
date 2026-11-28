@@ -1,19 +1,14 @@
-"""Speech models & transcription: English Sherpa-ONNX, Faster-Whisper multilingual + auto-detect,
-downloading/removing custom models safely, language selection on videos and creators, Romanized captions,
-and the remote GPU worker never returning the wrong language's model."""
-import hashlib
-import io
+"""Speech models & transcription: Faster-Whisper single multi-language default, auto-detect across 99+ languages,
+model size caching/removal, language selection on videos and creators, Romanized captions, and remote GPU worker checks."""
 import os
 import shutil
 import sys
-import tarfile
 import tempfile
-import threading
 import time
-from pathlib import Path
+from types import SimpleNamespace
 
 os.environ["CLIPCUT_DATA"] = tempfile.mkdtemp(prefix="pc-speech-")
-os.environ.pop("CLIPCUT_MODELS", None)          # models are made and removed: only ever inside this test's folder
+os.environ.pop("CLIPCUT_MODELS", None)
 os.environ.update(DATABASE_URL="", CLIPCUT_ACCOUNTS="0", CLIPCUT_FETCH_MODEL="0", CLIPCUT_AI_KEY="", CLIPCUT_AI_KEY_FILE="",
                   CLIPCUT_PUBLIC_URL="http://127.0.0.1:8765")
 sys.path.insert(0, ".")
@@ -35,145 +30,152 @@ def check(name, got, want=True):
 
 
 assert str(config.MODELS_DIR).startswith(os.environ["CLIPCUT_DATA"]), "the test must only touch its own folder"
-downloads = []
 
-
-def archive(name):
-    """A tiny stand-in for the real archive: the right folder name, the four files."""
-    src = Path(tempfile.mkdtemp(prefix="pc-tar-")) / name
-    src.mkdir()
-    for n in ("tokens.txt", "encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx"):
-        (src / n).write_bytes(b"model")
-    out = io.BytesIO()
-    with tarfile.open(fileobj=out, mode="w:bz2") as t:
-        t.add(src, arcname=name)
-    return out.getvalue()
-
-
-# ---- built-in models and Faster-Whisper multimodal settings
-check("English is the built-in Sherpa-ONNX model (Arabic removed from UI list)", sorted(fetch_model.MODELS), ["en"])
-check("faster-whisper is configured for multilingual transcription", bool(config.WHISPER_MODEL and config.ASR_ENGINE), True)
+# ---- English Sherpa model removed completely; Faster-Whisper is the single multi-language default
+check("no English Parakeet/Sherpa archive model remains", (fetch_model.MODELS, fetch_model.DEFAULT), ({}, ""))
+check("Faster-Whisper is configured as default speech engine",
+      (config.ASR_ENGINE, config.WHISPER_MODEL), ("faster-whisper", "base"))
 
 sp_init = c.get("/api/speech").json()
-check("speech API lists English model and Faster-Whisper metadata",
-      ([m["lang"] for m in sp_init["models"]],
-       "base" in sp_init["whisper_models"],
-       any(l["code"] == "auto" for l in sp_init["languages"])),
-      (["en"], True, True))
-check("speech settings default to auto engine and auto-detect language",
-      (sp_init["settings"]["engine"], sp_init["settings"]["language"]), ("auto", "auto"))
+check("speech API reports Faster-Whisper engine, sizes, and multi-language list",
+      (sp_init["engine"],
+       [m["id"] for m in sp_init["models"]],
+       sp_init["whisper_models"],
+       any(l["code"] == "auto" for l in sp_init["languages"]) and any(l["code"] == "es" for l in sp_init["languages"])),
+      ("faster-whisper", ["tiny", "base", "small", "medium", "large-v3"], ["tiny", "base", "small", "medium", "large-v3"], True))
+check("speech settings default to faster-whisper and auto-detect language",
+      sp_init["settings"], {"engine": "faster-whisper", "whisper_model": "base", "language": "auto"})
+
+check("status brief exposes Faster-Whisper multi-language options",
+      (c.get("/api/status").json()["speech"]["engine"], c.get("/api/status").json()["speech"]["default"]),
+      ("faster-whisper", "auto"))
 
 check("wrong Origin cannot change speech settings",
-      c.put("/api/speech", json={"engine": "faster-whisper"}, headers={"Origin": "https://evil.example"}).status_code, 403)
+      c.put("/api/speech", json={"language": "es"}, headers={"Origin": "https://evil.example"}).status_code, 403)
 check("invalid speech engine is rejected",
-      c.put("/api/speech", json={"engine": "invalid"}, headers=ORIGIN).status_code, 400)
+      c.put("/api/speech", json={"engine": "sherpa"}, headers=ORIGIN).status_code, 400)
+check("invalid Whisper model size is rejected",
+      c.put("/api/speech", json={"whisper_model": "huge"}, headers=ORIGIN).status_code, 400)
+check("unknown language is rejected in settings",
+      c.put("/api/speech", json={"language": "xx"}, headers=ORIGIN).status_code, 400)
+
 sp_saved = c.put("/api/speech", json={"engine": "faster-whisper", "whisper_model": "small", "language": "es"}, headers=ORIGIN)
-check("speech settings can save Faster-Whisper engine, size, and language",
+check("speech settings save Faster-Whisper size and spoken language",
       (sp_saved.status_code, sp_saved.json()["settings"]),
       (200, {"engine": "faster-whisper", "whisper_model": "small", "language": "es"}))
-sp_auto = c.put("/api/speech", json={"engine": "auto", "language": "auto", "whisper_model": "base"}, headers=ORIGIN)
-check("Auto button restores auto engine and auto-detect language",
-      (sp_auto.status_code, sp_auto.json()["settings"]["language"]), (200, "auto"))
+sp_auto = c.put("/api/speech", json={"engine": "faster-whisper", "language": "auto", "whisper_model": "base"}, headers=ORIGIN)
+check("Auto restores auto-detect language on Faster-Whisper",
+      (sp_auto.status_code, sp_auto.json()["settings"]),
+      (200, {"engine": "faster-whisper", "whisper_model": "base", "language": "auto"}))
 
-# ---- Register a second local Sherpa model transiently to verify downloader, SHA-256, locks, and remote checks
-test_ar_name = "sherpa-onnx-test-ar-int8"
-test_ar_arch = archive(test_ar_name)
-test_en_arch = archive(fetch_model.MODELS["en"][1])
-ARCHIVES = {"en": test_en_arch, "ar": test_ar_arch}
-tampered = set()
-
-fetch_model.MODELS["ar"] = ("Arabic", test_ar_name, "https://mirror.example/ar.tar.bz2", 107,
-                            "FastConformer Arabic (test)", hashlib.sha256(test_ar_arch).hexdigest())
-fetch_model._locks["ar"] = threading.Lock()
-fetch_model.state["ar"] = {"doing": False, "percent": 0, "error": ""}
+# ---- Pre-downloading & deleting Faster-Whisper sizes cleanly (with mocked downloader)
+downloads = []
+fail_next = False
+real_dl = fetch_model._download_whisper
 
 
-class Answer(io.BytesIO):
-    def __init__(self, data):
-        super().__init__(data)
-        self.headers = {"Content-Length": str(len(data))}
+def fake_download_whisper(size: str):
+    downloads.append(size)
+    if fail_next:
+        raise OSError("network offline")
+    d = fetch_model.folder(size)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "model.bin").write_bytes(b"weights")
+    return d
 
 
-def fake_open(url, timeout=None):
-    downloads.append(url)
-    lang = next(k for k, m in fetch_model.MODELS.items() if m[2] == url)
-    return Answer(ARCHIVES[lang] + (b"changed" if lang in tampered else b""))
-
-
-fetch_model.urllib.request.urlopen = fake_open
-check("each language has its own folder", fetch_model.folder("ar") != fetch_model.folder("en"), True)
-check("nothing is here to begin with", (fetch_model.status("en"), fetch_model.status("ar")), ("missing", "missing"))
-
+fetch_model._download_whisper = fake_download_whisper
 try:
-    fetch_model.ensure("ar", start=False)
-    said = ""
-except RuntimeError as e:
-    said = str(e)
-check("a video needing an un-downloaded local model says what to do instead of downloading",
-      ("Speech models" in said, downloads), (True, []))
+    check("nothing downloaded to begin with", (fetch_model.ready("base"), fetch_model.ready("small")), (False, False))
+    check("unknown model or old English route is refused",
+          (c.post("/api/speech/en", headers=ORIGIN).status_code, c.delete("/api/speech/en", headers=ORIGIN).status_code),
+          (400, 400))
+    check("another website cannot start a download",
+          c.post("/api/speech/small", headers={"Origin": "https://evil.example"}).status_code, 403)
+    check("...and nothing was downloaded", downloads, [])
+
+    fail_next = True
+    try:
+        fetch_model.ensure("small")
+        said = ""
+    except RuntimeError as e:
+        said = str(e)
+    check("a failed download explains what happened and stores error",
+          ("network offline" in said and "python -m studio.fetch_model small" in said,
+           "network offline" in fetch_model.state["small"]["error"]),
+          (True, True))
+    fail_next = False
+    downloads.clear()
+
+    check("the owner can start pre-downloading a Faster-Whisper size",
+          c.post("/api/speech/small", headers=ORIGIN).status_code, 200)
+    for _ in range(100):
+        if fetch_model.status("small") == "ready":
+            break
+        time.sleep(0.05)
+    check("downloaded size arrives ready inside models/whisper",
+          (fetch_model.ready("small"), (fetch_model.folder("small") / "model.bin").is_file()), (True, True))
+    check("asking again downloads nothing more",
+          (c.post("/api/speech/small", headers=ORIGIN).status_code, downloads.count("small")), (200, 1))
+
+    # Active size stays protected until user switches sizes; inactive busy size stays protected too
+    check("currently active size cannot be deleted directly",
+          c.delete("/api/speech/base", headers=ORIGIN).status_code, 400)
+    with transcribe._whisper_lock:
+        transcribe._whisper_busy[("small", "cpu", "int8")] = 1
+    check("size in active use refuses deletion",
+          (c.delete("/api/speech/small", headers=ORIGIN).status_code, fetch_model.ready("small")), (409, True))
+    with transcribe._whisper_lock:
+        transcribe._whisper_busy.pop(("small", "cpu", "int8"), None)
+    check("unused size can be removed cleanly",
+          (c.delete("/api/speech/small", headers=ORIGIN).status_code, fetch_model.folder("small").exists()), (200, False))
+finally:
+    fetch_model._download_whisper = real_dl
+
+# ---- Single Faster-Whisper model transcribes multiple languages cleanly
+whisper_calls = []
+
+
+class FakeWhisper:
+    def transcribe(self, pcm, language=None, word_timestamps=True, vad_filter=True):
+        whisper_calls.append({"language": language, "len": len(pcm), "word_timestamps": word_timestamps})
+        segs = [
+            SimpleNamespace(
+                end=1.0,
+                words=[
+                    SimpleNamespace(word=" الكتابُ", start=0.1, end=0.5),
+                    SimpleNamespace(word=" hola", start=0.6, end=0.9),
+                ],
+            )
+        ]
+        return iter(segs), None
+
+
+real_get_whisper = transcribe._get_whisper
+transcribe._get_whisper = lambda model_name, device, compute: FakeWhisper()
 try:
-    transcribe._new("ar")
-    said = ""
-except RuntimeError as e:
-    said = str(e)
-check("...and so does loading the model for transcribing", ("Speech models" in said, downloads), (True, []))
+    sample_audio = transcribe.np.zeros(16000, dtype=transcribe.np.int16)
+    got_auto = transcribe.transcribe(sample_audio, lang="auto")
+    got_es = transcribe.transcribe(sample_audio, lang="es")
+    got_ar = transcribe.transcribe(sample_audio, lang="ar")
+finally:
+    transcribe._get_whisper = real_get_whisper
 
-# ---- the routes: list, download, remove
-r = c.get("/api/speech").json()["models"]
-check("the page lists registered local models with their size",
-      [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
-      [("en", "missing", True), ("ar", "missing", True)])
-check("an unknown language is refused", c.post("/api/speech/xx", headers=ORIGIN).status_code, 400)
-check("another website cannot start a download",
-      c.post("/api/speech/ar", headers={"Origin": "https://evil.example"}).status_code, 403)
-check("...and nothing was downloaded", downloads, [])
-tampered.add("ar")
-try:
-    fetch_model.ensure("ar")
-    said = ""
-except RuntimeError as e:
-    said = str(e)
-check("a downloaded file with the wrong fingerprint is refused, in plain words",
-      ("not the one it expects" in said and "Nothing was unpacked" in said, fetch_model.ready("ar")), (True, False))
-check("...it says which fingerprint it got and which it expected",
-      fetch_model.MODELS["ar"][5] in said and "SHA-256" in said, True)
-check("...the reason is shown on the Speech models page",
-      "not the expected one" in fetch_model.state["ar"]["error"], True)
-check("...and nothing is left behind",
-      sorted(p.name for p in config.MODELS_DIR.iterdir()) if config.MODELS_DIR.exists() else [], [])
-tampered.clear()
-downloads.clear()
-check("the owner can start a model download", c.post("/api/speech/ar", headers=ORIGIN).status_code, 200)
-for _ in range(100):
-    if fetch_model.status("ar") == "ready":
-        break
-    time.sleep(0.05)
-check("downloaded model arrives whole, in its own folder",
-      (fetch_model.ready("ar"), sorted(p.name for p in fetch_model.folder("ar").iterdir())),
-      (True, ["decoder.int8.onnx", "encoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]))
-check("English was not touched", fetch_model.ready("en"), False)
-check("nothing is left over from the download",
-      sorted(p.name for p in config.MODELS_DIR.iterdir()), [fetch_model.MODELS["ar"][1]])
-check("the status tells every page the downloaded model is ready",
-      c.get("/api/status").json()["speech"]["ar"]["state"], "ready")
-check("asking again downloads nothing more", (c.post("/api/speech/ar", headers=ORIGIN).status_code, len(downloads)), (200, 1))
-check("English can't be removed", c.delete("/api/speech/en", headers=ORIGIN).status_code, 400)
+check("auto language passes None so Faster-Whisper auto-detects", whisper_calls[0]["language"], None)
+check("explicit languages pass their language code to Faster-Whisper",
+      (whisper_calls[1]["language"], whisper_calls[2]["language"]), ("es", "ar"))
+check("Arabic vowel marks are stripped cleanly on Faster-Whisper words",
+      [w["w"] for w in got_auto], ["الكتاب", "hola"])
 
-transcribe._pool("ar").made += 1
-check("a model in use is not removed",
-      (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.ready("ar")), (409, True))
-transcribe._pool("ar").made -= 1
-check("optional model can be removed when nothing uses it",
-      (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.folder("ar").exists()), (200, False))
-
-# ---- choosing the language (multilingual + auto-detect + validation)
+# ---- Choosing the language on videos and creators (auto-detect + multilingual)
 check("a video can be marked as auto-detect", jobs.clean_options({"lang": "auto"}), {"lang": "auto"})
 check("a video can be marked with any Faster-Whisper language", jobs.clean_options({"lang": "es"}), {"lang": "es"})
-check("an unknown language becomes English", jobs.clean_options({"lang": "xx"}), {"lang": "en"})
-check("videos default to English unless chosen", jobs.DEFAULTS["lang"], "en")
+check("an unknown language falls back to auto", jobs.clean_options({"lang": "xx"}), {"lang": "auto"})
+check("videos default to auto unless chosen", jobs.DEFAULTS["lang"], "auto")
 check("a creator can speak Spanish or Arabic",
       (creators._clean({"lang": "es"}), creators._clean({"lang": "ar"})), ({"lang": "es"}, {"lang": "ar"}))
-check("...but not a made-up language", creators._clean({"lang": "<b>"}), {"lang": "en"})
+check("...but not a made-up language", creators._clean({"lang": "<b>"}), {"lang": "auto"})
+
 r = c.post("/api/creators", json={"name": "Arabic speaker"}, headers=ORIGIN)
 cid = r.json()["id"]
 c.put(f"/api/creators/{cid}", json={"lang": "ar"}, headers=ORIGIN)
@@ -181,15 +183,16 @@ with ctx.as_user(auth.local_user().id):
     cr = creators.get(cid)
     check("the creator's language is kept", cr.get("lang"), "ar")
     real_missing = tools.missing
+    real_start = live.Session.start
     tools.missing = lambda: []
+    live.Session.start = lambda self: None
     try:
-        live.start_session(cr, "https://www.twitch.tv/someone")
-        said = ""
-    except ValueError as e:
-        said = str(e)
+        live_job = live.start_session(cr, "https://www.twitch.tv/someone")
     finally:
         tools.missing = real_missing
-    check("recording a creator whose local model isn't ready says what to do", "Speech models" in said, True)
+        live.Session.start = real_start
+    check("live recording works immediately for non-English creators with Faster-Whisper",
+          live_job.get("lang"), "ar")
 
 # ---- Arabic words & Romanization
 tokens = ["▁ال", "ك", "ت", "ا", "بُ", "▁جـ", "ميل", "،", "▁ok"]
@@ -207,7 +210,7 @@ check("an Arabic transcript gets the note", brain.ARABIC_NOTE in brain._rules(15
 check("an English one does not", brain.ARABIC_NOTE in brain._rules(15, 60, "[1] hello and welcome back " * 5), False)
 
 
-# ---- the second machine: never the wrong language's model
+# ---- Remote GPU worker language consistency checks
 class Reply:
     def __init__(self, code, body):
         self.status_code, self.body = code, body
@@ -230,23 +233,23 @@ try:
     got = "used"
 except transcribe.RemoteLacks:
     got = "refused"
-check("an older machine's English answer is not used for Arabic", got, "refused")
-check("...but still used for English", transcribe._decode_remote(piece, "en"), [(["▁hi"], [0.0])])
+check("a remote reply missing the requested lang tag is refused", got, "refused")
+
 httpx.post = lambda *a, **k: Reply(409, {})
 try:
     transcribe._decode_remote(piece, "ar")
     got = "used"
 except transcribe.RemoteLacks:
     got = "refused"
-check("a machine without the Arabic model says so", got, "refused")
-httpx.post = lambda *a, **k: Reply(200, dict(old, lang="ar"))
-check("a machine with the Arabic model is used", transcribe._decode_remote(piece, "ar"), [(["▁hi"], [0.0])])
-httpx.post = real_post
+check("a remote machine refusing the language raises RemoteLacks", got, "refused")
 
-# Restore MODELS to built-in default
-fetch_model.MODELS.pop("ar", None)
-fetch_model._locks.pop("ar", None)
-fetch_model.state.pop("ar", None)
+httpx.post = lambda *a, **k: Reply(200, dict(old, lang="ar"))
+check("a remote machine returning matching lang is accepted",
+      transcribe._decode_remote(piece, "ar"), [(["▁hi"], [0.0])])
+httpx.post = lambda *a, **k: Reply(200, dict(old, lang="auto"))
+check("...including auto language detection",
+      transcribe._decode_remote(piece, "auto"), [(["▁hi"], [0.0])])
+httpx.post = real_post
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 shutil.rmtree(os.environ["CLIPCUT_DATA"], ignore_errors=True)

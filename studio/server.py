@@ -617,9 +617,16 @@ def status(request: Request):
 
 
 def _speech_brief() -> dict:
-    """Which spoken languages can be transcribed here: for the language choice when adding a video."""
-    from . import fetch_model
-    return {k: {"label": m[0], "size_mb": m[3], "state": fetch_model.status(k)} for k, m in fetch_model.MODELS.items()}
+    """Speech settings and supported languages for video and creator pickers."""
+    from . import transcribe
+    cfg = transcribe.speech_settings()
+    return {
+        "engine": "faster-whisper",
+        "default": cfg["language"] or "auto",
+        "whisper_model": cfg["whisper_model"],
+        "ready": transcribe.model_ready(),
+        "languages": [{"code": k, "label": v} for k, v in transcribe.SPEECH_LANGUAGES],
+    }
 
 
 # ================================================================ videos
@@ -1563,24 +1570,25 @@ def ai_test(request: Request):
         raise HTTPException(502, ai.explain(e) or "The AI did not answer: " + _ai_error(e))
 
 
-# ---------------------------------------------------------------- speech models, one per spoken language
-# Only the owner (or an admin, when accounts are on) can download or delete them: they are shared by everyone here.
-def _speech_lang(lang: str) -> str:
+# ---------------------------------------------------------------- Faster-Whisper speech models
+# Only the owner (or an admin, when accounts are on) can configure, pre-download or delete them: shared across everyone here.
+def _speech_size(size: str) -> str:
     from . import fetch_model
-    if not fetch_model.known(lang):
-        raise HTTPException(400, "ClipCut has no speech model for that language.")
-    return lang
+    key = (size or "").strip().lower()
+    if not fetch_model.known(key):
+        raise HTTPException(400, "Choose a Faster-Whisper model size: tiny, base, small, medium, or large-v3.")
+    return key
 
 
 @app.get("/api/speech")
 def speech_list(request: Request):
     _admin(request)
     from . import fetch_model, transcribe
+    cfg = transcribe.speech_settings()
     return {
-        "models": [{"lang": k, "label": m[0], "size_mb": m[3], "credit": m[4], "state": fetch_model.status(k),
-                    "percent": fetch_model.state[k]["percent"], "error": fetch_model.state[k]["error"],
-                    "default": k == fetch_model.DEFAULT} for k, m in fetch_model.MODELS.items()],
-        "settings": transcribe.speech_settings(),
+        "engine": "faster-whisper",
+        "models": fetch_model.list_models(cfg["whisper_model"]),
+        "settings": cfg,
         "whisper_models": list(transcribe.WHISPER_MODELS),
         "languages": [{"code": code, "label": label} for code, label in transcribe.SPEECH_LANGUAGES],
     }
@@ -1598,21 +1606,21 @@ def speech_save(request: Request, body: dict = Body(...)):
     return speech_list(request)
 
 
-@app.post("/api/speech/{lang}")
-def speech_download(request: Request, lang: str):
+@app.post("/api/speech/{size}")
+def speech_download(request: Request, size: str):
     _admin(request)
     from . import fetch_model
-    fetch_model.start(_speech_lang(lang))
+    fetch_model.start(_speech_size(size))
     ctx.bump()
     return speech_list(request)
 
 
-@app.delete("/api/speech/{lang}")
-def speech_remove(request: Request, lang: str):
+@app.delete("/api/speech/{size}")
+def speech_remove(request: Request, size: str):
     _admin(request)
     from . import fetch_model
     try:
-        fetch_model.remove(_speech_lang(lang))
+        fetch_model.remove(_speech_size(size))
     except ValueError as e:
         raise HTTPException(400, str(e))
     except RuntimeError as e:

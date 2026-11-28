@@ -243,29 +243,35 @@ PIP_W = 380            # how wide the facecam is in the 1080-wide frame
 PIP_MARGIN = 26
 
 
-def _filter(layout, fg_h, facecam=None, w=W, h=H):
+def _filter(layout, fg_h, facecam=None, w=W, h=H, hdr=False):
+    src_in = "sdr" if hdr else "0:v"
+    hdr_prefix = (
+        "[0:v]zscale=t=linear:npl=100,format=gbrpf32le,"
+        "tonemap=tonemap=hable:desat=0,zscale=p=bt709:t=bt709:m=bt709:r=tv[sdr];"
+        if hdr else ""
+    )
     if layout == "gameplay" and facecam:
         fx, fy, fw, fh = (int(v) for v in facecam)
         if fw > 8 and fh > 8:
-            pip_h = max(2, int(round(PIP_W * fh / fw)))
-            return (f"[0:v]fps={config.OUT_FPS},split=2[base][fc];"
+            pip_h = max(2, int(round(PIP_W * fh / fw / 2)) * 2)
+            return (f"{hdr_prefix}[{src_in}]fps={config.OUT_FPS},split=2[base][fc];"
                     f"[base]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1[b];"
                     f"[fc]crop={fw}:{fh}:{fx}:{fy},scale={PIP_W}:{pip_h},setsar=1[p];"
                     f"[b][p]overlay={w - PIP_W - PIP_MARGIN}:{PIP_MARGIN}[v0];")
-    fill = f"[0:v]fps={config.OUT_FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
+    fill = f"[{src_in}]fps={config.OUT_FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
     if layout == "crop" or (layout == "gameplay" and not facecam):
-        return fill + ",setsar=1[v0];"
+        return hdr_prefix + fill + ",setsar=1[v0];"
     if layout == "left":
-        return fill + ":0:0,setsar=1[v0];"
+        return hdr_prefix + fill + ":0:0,setsar=1[v0];"
     if layout == "right":
-        return fill + ":in_w-out_w:0,setsar=1[v0];"
+        return hdr_prefix + fill + ":in_w-out_w:0,setsar=1[v0];"
     if layout == "fit":
-        return f"[0:v]fps={config.OUT_FPS},scale={w}:{fg_h},pad={w}:{h}:0:(oh-ih)/2:black,setsar=1[v0];"
+        return f"{hdr_prefix}[{src_in}]fps={config.OUT_FPS},scale={w}:{fg_h},pad={w}:{h}:0:(oh-ih)/2:black,setsar=1[v0];"
     if layout == "split":
         half = f"scale={w}:{h // 2}:force_original_aspect_ratio=increase,crop={w}:{h // 2}"
-        return (f"[0:v]fps={config.OUT_FPS},split=2[l][r];[l]crop=iw/2:ih:0:0,{half}[t];"
+        return (f"{hdr_prefix}[{src_in}]fps={config.OUT_FPS},split=2[l][r];[l]crop=iw/2:ih:0:0,{half}[t];"
                 f"[r]crop=iw/2:ih:iw/2:0,{half}[u];[t][u]vstack,setsar=1[v0];")
-    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
+    return (f"{hdr_prefix}[{src_in}]fps={config.OUT_FPS},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={w}:{h},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={w}:{fg_h}:force_original_aspect_ratio=increase,crop={w}:{fg_h}[fg];"
@@ -304,40 +310,65 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _is_hdr(src: Path) -> bool:
+    try:
+        from . import media as _m
+        return bool(_m.probe(src).get("hdr"))
+    except Exception:  # noqa: BLE001 - unreadable colour info falls back to standard SDR path
+        return False
+
+
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, meta=None, w=W, h=H) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h, face, w=w, h=h) + f"[v0]ass={name}.ass:fontsdir=f[v]"
-    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
-            "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
-            "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
+    is_hdr = _is_hdr(src)
+    hdr_attempts = (True, False) if is_hdr else (False,)
+    base_prefix = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}",
+                   "-avoid_negative_ts", "make_zero", "-i", str(src)]
+    base_tail = ["-map", "[v]", "-map", "0:a:0",
+                 "-af", "aresample=async=1:first_pts=0,loudnorm=I=-14:TP=-1.5:LRA=11",
+                 "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
     for k, v in (meta or {}).items():
         if v:
-            base += ["-metadata", f"{k}={v}"]
-    base += ["-movflags", "+faststart", "-pix_fmt"]
+            base_tail += ["-metadata", f"{k}={v}"]
     encoders = []
     if _qsv_ok is not False:
         encoders.append(("qsv", ["nv12", "-c:v", "h264_qsv", "-global_quality", "23", "-preset", "fast"]))
     encoders.append(("x264", ["yuv420p", "-c:v", "libx264", "-crf", "21", "-preset", "veryfast"]))
     err = None
-    for label, enc in encoders:
-        p = subprocess.run(base + enc + [f"{name}.mp4"], cwd=work, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", creationflags=NO_WINDOW, timeout=RENDER_SECONDS)
-        if p.returncode == 0:
-            if label == "qsv":
-                _qsv_ok = True
+    out_mp4 = work / f"{name}.mp4"
+    done = False
+    for use_hdr in hdr_attempts:
+        fc = _filter(layout, fg_h, face, w=w, h=h, hdr=use_hdr) + f"[v0]ass={name}.ass:fontsdir=f[v]"
+        color_tags = (["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
+                      if (use_hdr or not is_hdr) else [])
+        base = base_prefix + ["-filter_complex", fc] + base_tail + color_tags + ["-movflags", "+faststart", "-pix_fmt"]
+        for label, enc in encoders:
+            p = subprocess.run(base + enc + [f"{name}.mp4"], cwd=work, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", creationflags=NO_WINDOW, timeout=RENDER_SECONDS)
+            if p.returncode == 0:
+                if label == "qsv":
+                    _qsv_ok = True
+                done = True
+                break
+            err = p.stderr[-1200:]
+            if label == "qsv" and not use_hdr:
+                _qsv_ok = False
+        if done:
             break
-        err = p.stderr[-1200:]
-        if label == "qsv":
-            _qsv_ok = False
     else:
         raise RuntimeError(f"Render failed: {err}")
+    if not out_mp4.is_file() or out_mp4.stat().st_size == 0:
+        raise RuntimeError("Render failed: output video was missing or empty.")
     cover_t = min(1.2, (end - start) / 2)
     run(["ffmpeg", "-y", "-v", "error", "-ss", f"{cover_t:.2f}", "-i", f"{name}.mp4", "-frames:v", "1",
-         "-q:v", "3", f"{name}.jpg"], cwd=work)
+         "-update", "1", "-q:v", "3", f"{name}.jpg"], cwd=work)
+    out_jpg = work / f"{name}.jpg"
+    if not out_jpg.is_file() or out_jpg.stat().st_size == 0:
+        raise RuntimeError("Render failed: cover image was missing or empty.")
     for ext in ("mp4", "jpg", "ass"):
         shutil.move(str(work / f"{name}.{ext}"), str(out_dir / f"{name}.{ext}"))
     return {"file": f"{name}.mp4", "cover": f"{name}.jpg", "layout": layout}
@@ -357,6 +388,8 @@ def mix_background_music(clip_mp4: Path, music_path: Path, out_path: Path,
     """
     import subprocess
     from . import media as _m
+    if clip_mp4.resolve() == out_path.resolve():
+        raise ValueError("Refusing to overwrite the source video while mixing background music.")
     dur = _m.probe(clip_mp4).get("duration", 60)
     volume = max(0.0, min(1.0, volume))
     fade_in = max(0.0, min(dur / 2, fade_in))
@@ -371,17 +404,22 @@ def mix_background_music(clip_mp4: Path, music_path: Path, out_path: Path,
         music_af = (music_base +
                     "[0:a]asplit=2[voice][sc];"
                     "[m][sc]sidechaincompress=threshold=0.03:ratio=6:attack=50:release=400[ducked];"
-                    "[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]")
+                    "[voice][ducked]amix=inputs=2:duration=first:dropout_transition=0,"
+                    "alimiter=limit=0.841:level=disabled[aout]")
     else:
-        music_af = music_base + "[0:a][m]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+        music_af = (music_base +
+                    "[0:a][m]amix=inputs=2:duration=first:dropout_transition=0,"
+                    "alimiter=limit=0.841:level=disabled[aout]")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-y", "-v", "error",
            "-i", str(clip_mp4), "-stream_loop", "-1", "-i", str(music_path),
            "-filter_complex", music_af, "-map", "0:v", "-map", "[aout]",
-           "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+           "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
            "-movflags", "+faststart", "-shortest", str(out_path)]
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                        errors="replace", creationflags=NO_WINDOW, timeout=120)
     if p.returncode != 0:
         raise RuntimeError(f"Audio mix failed: {p.stderr[-800:]}")
+    if not out_path.is_file() or out_path.stat().st_size == 0:
+        raise RuntimeError("Audio mix failed: output video was missing or empty.")
     return out_path

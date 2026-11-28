@@ -1,5 +1,7 @@
 .curved-loop-jacket {
-  min-height: 160px;
+  position: relative;
+  min-height: 124px;
+  padding: 12px 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -7,15 +9,57 @@
   overflow: hidden;
 }
 
+.curved-loop-toggle {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 8, 10, 0.85);
+  color: #dfd5cc;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.2s ease, border-color 0.2s ease;
+}
+
+.curved-loop-toggle:hover,
+.curved-loop-toggle:focus-visible {
+  opacity: 1;
+  border-color: rgba(255, 122, 47, 0.65);
+}
+
+.curved-loop-toggle:focus-visible {
+  outline: 2px solid #ff7a2f;
+  outline-offset: 2px;
+}
+
 .curved-loop-svg {
   width: 100%;
+  min-width: 720px;
+  flex-shrink: 0;
   aspect-ratio: 100 / 12;
   overflow: visible;
   display: block;
   fill: currentColor;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-synthesis-weight: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   user-select: none;
   text-transform: uppercase;
   line-height: 1;
+}
+
+@media (min-width: 768px) {
+  .curved-loop-jacket {
+    min-height: 146px;
+    padding: 16px 0;
+  }
 }

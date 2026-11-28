@@ -18,7 +18,7 @@ const ITEMS = [
 export default function LogoLoop() {
   return (
     <div className="relative overflow-hidden py-5 [mask-image:linear-gradient(90deg,transparent,black_12%,black_88%,transparent)]">
-      <div className="flex w-max animate-[marquee_28s_linear_infinite] gap-12 whitespace-nowrap">
+      <div className="flex w-max animate-[marquee_28s_linear_infinite] motion-reduce:animate-none gap-12 whitespace-nowrap">
         {[...ITEMS, ...ITEMS].map((item, idx) => (
           <span
             key={idx}

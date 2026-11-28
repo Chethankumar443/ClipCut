@@ -5,7 +5,43 @@ import { ChevronDown, Check } from 'lucide-react';
 
 import './GlideSelect.css';
 
-const SIZES = {
+interface SelectOptionInput {
+  value: string;
+  label?: string;
+  tag?: string;
+}
+
+interface SelectOption {
+  value: string;
+  label: string;
+  tag?: string;
+}
+
+export interface GlideSelectProps {
+  options?: (string | SelectOptionInput)[];
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string, option: SelectOption) => void;
+  placeholder?: string;
+  showTags?: boolean;
+  accentColor?: string;
+  surfaceColor?: string;
+  highlightColor?: string;
+  textColor?: string;
+  size?: 'sm' | 'md' | 'lg';
+  radius?: number;
+  menuWidth?: number;
+  placement?: 'bottom' | 'top';
+  align?: 'left' | 'right';
+  popDuration?: number;
+  glideDuration?: number;
+  rememberPosition?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+  className?: string;
+}
+
+const SIZES: Record<'sm' | 'md' | 'lg', { chip: number; row: number; font: number }> = {
   sm: { chip: 28, row: 26, font: 12 },
   md: { chip: 32, row: 30, font: 13 },
   lg: { chip: 44, row: 40, font: 14 }
@@ -15,9 +51,10 @@ const GAP = 1;
 const MENU_GAP = 6;
 const DEFAULT_OPTIONS = ['One', 'Two', 'Three'];
 
-const norm = o => (typeof o === 'string' ? { value: o, label: o } : o);
-const textOf = it => (typeof it.label === 'string' ? it.label : it.value);
-const typeaheadIndex = (items, from, ch) => {
+const norm = (o: string | SelectOptionInput): SelectOption =>
+  typeof o === 'string' ? { value: o, label: o } : { ...o, label: o.label ?? o.value };
+const textOf = (it: SelectOption) => (typeof it.label === 'string' ? it.label : it.value);
+const typeaheadIndex = (items: SelectOption[], from: number, ch: string) => {
   const c = ch.toLowerCase();
   const n = items.length;
   for (let k = 1; k <= n; k++) {
@@ -49,21 +86,21 @@ export default function GlideSelect({
   disabled = false,
   ariaLabel = 'Select',
   className = ''
-}) {
+}: GlideSelectProps) {
   const items = options.map(norm);
   const [inner, setInner] = useState(defaultValue ?? '');
   const current = value ?? inner;
   const selected = items.findIndex(it => it.value === current);
   const [phase, setPhase] = useState('closed');
-  const [active, setActive] = useState(null);
+  const [active, setActive] = useState<number | null>(null);
   const [side, setSide] = useState(placement);
-  const rootRef = useRef(null);
-  const triggerRef = useRef(null);
-  const menuRef = useRef(null);
-  const pillRef = useRef(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLDivElement>(null);
   const instant = useRef(false);
-  const closeTimer = useRef(undefined);
-  const scrub = useRef(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scrub = useRef<{ id: number; top: number } | null>(null);
   const id = useId();
   const S = SIZES[size] ?? SIZES.md;
   const step = S.row + GAP;
@@ -112,14 +149,14 @@ export default function GlideSelect({
     instant.current = false;
   }, [active, phase, step]);
 
-  const open = viaKey => {
+  const open = (viaKey: boolean) => {
     if (disabled) return;
     clearTimeout(closeTimer.current);
     instant.current = true;
     setActive(selected >= 0 ? selected : viaKey ? 0 : null);
     setPhase('open');
   };
-  const close = mode => {
+  const close = (mode: 'instant' | 'pop') => {
     setActive(null);
     clearTimeout(closeTimer.current);
     const el = menuRef.current;
@@ -132,7 +169,7 @@ export default function GlideSelect({
     setPhase('closing');
     closeTimer.current = setTimeout(() => setPhase('closed'), popOut + 20);
   };
-  const pick = (i, viaKey) => {
+  const pick = (i: number, viaKey: boolean) => {
     const it = items[i];
     if (!it) {
       close('instant');
@@ -147,7 +184,7 @@ export default function GlideSelect({
     triggerRef.current?.focus({ preventScroll: true });
   };
 
-  const onTriggerKey = e => {
+  const onTriggerKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     const k = e.key;
     const n = items.length;
     const cur = active ?? Math.max(0, selected);
@@ -158,7 +195,7 @@ export default function GlideSelect({
       }
       return;
     }
-    const go = i => {
+    const go = (i: number) => {
       e.preventDefault();
       instant.current = true;
       setActive(Math.min(n - 1, Math.max(0, i)));
@@ -176,8 +213,8 @@ export default function GlideSelect({
 
   useEffect(() => {
     if (phase === 'closed') return undefined;
-    const onDown = e => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) close('pop');
+    const onDown = (e: PointerEvent) => {
+      if (rootRef.current && e.target instanceof Node && !rootRef.current.contains(e.target)) close('pop');
     };
     document.addEventListener('pointerdown', onDown, true);
     return () => document.removeEventListener('pointerdown', onDown, true);
@@ -189,13 +226,13 @@ export default function GlideSelect({
   }, [disabled]);
   useEffect(() => () => clearTimeout(closeTimer.current), []);
 
-  const rowAt = y => {
+  const rowAt = (y: number) => {
     const s = scrub.current;
     if (!s) return null;
     const i = Math.floor((y - s.top - PAD) / step);
     return i >= 0 && i < items.length ? i : null;
   };
-  const onListDown = e => {
+  const onListDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (scrub.current) return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -204,21 +241,21 @@ export default function GlideSelect({
     instant.current = true;
     setActive(rowAt(e.clientY));
   };
-  const onListMove = e => {
+  const onListMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!scrub.current || scrub.current.id !== e.pointerId) return;
     const i = rowAt(e.clientY);
     if (i !== active) setActive(i);
   };
-  const onListUp = e => {
+  const onListUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!scrub.current || scrub.current.id !== e.pointerId) return;
     const i = e.type === 'pointerup' ? rowAt(e.clientY) : null;
     scrub.current = null;
     if (i !== null) pick(i, false);
     else if (!rememberPosition) setActive(null);
   };
-  const onListOver = e => {
+  const onListOver = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'touch' || scrub.current) return;
-    const row = e.target.closest('[data-index]');
+    const row = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-index]') : null;
     if (!row) return;
     const i = Number(row.dataset.index);
     if (i !== active) setActive(i);
@@ -246,7 +283,7 @@ export default function GlideSelect({
         '--gs-pop-out': `${popOut}ms`,
         '--gs-glide': `${glideDuration}ms`,
         '--gs-origin': origin
-      }}
+      } as React.CSSProperties}
       onAnimationEnd={e => {
         if (e.animationName === 'gs-swap' && rootRef.current) delete rootRef.current.dataset.swap;
       }}

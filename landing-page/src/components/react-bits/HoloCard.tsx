@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import './HoloCard.css';
 
@@ -279,21 +279,42 @@ void main() {
 }
 `;
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+export interface HoloCardProps {
+  image?: string;
+  backImage?: string;
+  alt?: string;
+  preset?: string;
+  intensity?: number;
+  scale?: number;
+  edgeSparkle?: number;
+  frame?: number;
+  glare?: number;
+  foilColor?: string;
+  width?: number | string;
+  radius?: number;
+  tiltMax?: number;
+  hoverScale?: number;
+  idle?: boolean;
+  shadow?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}
 
-const parseColor = value => {
-  const fallback = [0.78, 0.8, 0.84];
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const parseColor = (value: string): [number, number, number] => {
+  const fallback: [number, number, number] = [0.78, 0.8, 0.84];
   if (typeof document === 'undefined') return fallback;
   const ctx = document.createElement('canvas').getContext('2d');
   if (!ctx) return fallback;
   ctx.fillStyle = '#000000';
   ctx.fillStyle = value;
   const resolved = ctx.fillStyle;
-  if (!resolved.startsWith('#') || resolved.length !== 7) return fallback;
-  return [1, 3, 5].map(i => Math.pow(parseInt(resolved.slice(i, i + 2), 16) / 255, 2.2));
+  if (typeof resolved !== 'string' || !resolved.startsWith('#') || resolved.length !== 7) return fallback;
+  return [1, 3, 5].map(i => Math.pow(parseInt(resolved.slice(i, i + 2), 16) / 255, 2.2)) as [number, number, number];
 };
 
-const compile = (gl, type, source) => {
+const compile = (gl: WebGL2RenderingContext, type: number, source: string) => {
   const shader = gl.createShader(type);
   if (!shader) return null;
   gl.shaderSource(shader, source);
@@ -322,15 +343,27 @@ export default function HoloCard({
   shadow = true,
   className = '',
   style
-}) {
-  const rootRef = useRef(null);
-  const rotorRef = useRef(null);
-  const shadowRef = useRef(null);
-  const canvasRef = useRef(null);
-  const settingsRef = useRef(null);
+}: HoloCardProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const rotorRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const settingsRef = useRef({
+    preset: Math.max(0, PRESETS.indexOf(preset)),
+    intensity: clamp(intensity, 0, 1),
+    scale: clamp(scale, 0.25, 4),
+    edgeSparkle: clamp(edgeSparkle, 0, 1),
+    frame: clamp(frame, 0, 20) / 100,
+    glare: clamp(glare, 0, 1),
+    foil: parseColor(foilColor),
+    radius: Math.max(0, radius),
+    tiltMax: clamp(tiltMax, 0, 45),
+    hoverScale: clamp(hoverScale, 0.8, 1.3),
+    idle
+  });
   const pointerRef = useRef({ x: 0.5, y: 0.5, inside: false });
-  const wakeRef = useRef(null);
-  const loadRef = useRef(null);
+  const wakeRef = useRef<(() => void) | null>(null);
+  const loadRef = useRef<((src?: string) => void) | null>(null);
   const flipRef = useRef(false);
   const [ratio, setRatio] = useState(CARD_RATIO);
   const [ready, setReady] = useState(false);
@@ -368,10 +401,10 @@ export default function HoloCard({
 
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false });
-    let program = null;
-    let texture = null;
-    let buffer = null;
-    const uniforms = {};
+    let program: WebGLProgram | null = null;
+    let texture: WebGLTexture | null = null;
+    let buffer: WebGLBuffer | null = null;
+    const uniforms: Record<string, WebGLUniformLocation | null> = {};
     let textureReady = false;
 
     if (gl) {
@@ -476,12 +509,12 @@ export default function HoloCard({
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
-    const spring = (value, velocity, target, stiffness, damping, dt) => {
+    const spring = (value: number, velocity: number, target: number, stiffness: number, damping: number, dt: number): [number, number] => {
       const next = velocity + ((target - value) * stiffness - velocity * damping) * dt;
       return [value + next * dt, next];
     };
 
-    const tick = now => {
+    const tick = (now: number) => {
       raf = 0;
       if (!alive) return;
       const dt = Math.min(1 / 30, Math.max(1 / 240, (now - last) / 1000));
@@ -558,7 +591,7 @@ export default function HoloCard({
       wake();
     };
 
-    loadRef.current = src => {
+    loadRef.current = (src?: string) => {
       textureReady = false;
       setReady(false);
       if (!src) return;
@@ -611,7 +644,7 @@ export default function HoloCard({
     };
   }, []);
 
-  const track = e => {
+  const track = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'touch' && e.type === 'pointermove' && !e.buttons) return;
     const rect = e.currentTarget.getBoundingClientRect();
     pointerRef.current = {
@@ -657,7 +690,7 @@ export default function HoloCard({
         '--hc-ratio': ratio,
         '--hc-radius': `${radius}px`,
         ...style
-      }}
+      } as React.CSSProperties}
     >
       {shadow ? <span ref={shadowRef} className="holo-card__shadow" aria-hidden="true" /> : null}
       <div ref={rotorRef} className="holo-card__rotor">

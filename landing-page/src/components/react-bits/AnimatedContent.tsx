@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/modernWeb';
 
 interface AnimatedContentProps {
   children: React.ReactNode;
@@ -30,7 +31,7 @@ const AnimatedContent = ({
   animateOpacity = true,
   scale = 1,
   blur = 0,
-  threshold = 0.1,
+  threshold = 0.02,
   delay = 0,
   stagger = 0,
   once = true,
@@ -39,10 +40,21 @@ const AnimatedContent = ({
 }: AnimatedContentProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
+    const reduced = prefersReducedMotion();
+    setReduceMotion(reduced);
+    const unsubReduce = subscribeReducedMotion((matches) => {
+      setReduceMotion(matches);
+      if (matches) setVisible(true);
+    });
+
     const el = ref.current;
-    if (!el) return;
+    if (!el || reduced || typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return unsubReduce;
+    }
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -55,7 +67,10 @@ const AnimatedContent = ({
       { threshold }
     );
     obs.observe(el);
-    return () => obs.disconnect();
+    return () => {
+      obs.disconnect();
+      unsubReduce();
+    };
   }, [threshold, once]);
 
   const sign = reverse ? -1 : 1;
@@ -69,15 +84,16 @@ const AnimatedContent = ({
         <div
           key={idx}
           style={{
-            transitionProperty: 'transform, opacity, filter',
-            transitionDuration: `${duration}s`,
+            transitionProperty: reduceMotion ? 'opacity' : 'transform, opacity, filter',
+            transitionDuration: reduceMotion ? '0.15s' : `${duration}s`,
             transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
-            transitionDelay: `${delay + idx * stagger}s`,
+            transitionDelay: reduceMotion ? '0s' : `${delay + idx * stagger}s`,
             opacity: visible ? 1 : animateOpacity ? initialOpacity : 1,
-            filter: visible ? 'blur(0px)' : blur > 0 ? `blur(${blur}px)` : undefined,
-            transform: visible
-              ? 'translate3d(0, 0, 0) scale(1)'
-              : `translate3d(${tx}px, ${ty}px, 0) scale(${scale})`,
+            filter: reduceMotion || visible ? 'blur(0px)' : blur > 0 ? `blur(${blur}px)` : undefined,
+            transform:
+              reduceMotion || visible
+                ? 'translate3d(0, 0, 0) scale(1)'
+                : `translate3d(${tx}px, ${ty}px, 0) scale(${scale})`,
           }}
         >
           {child}

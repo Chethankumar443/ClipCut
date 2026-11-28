@@ -1,6 +1,7 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
-import { BorderTrail } from "../motion-primitives/BorderTrail";
+import { BorderTrail } from "./motion-primitives/BorderTrail";
+import { prefersReducedMotion, subscribeReducedMotion } from "../lib/modernWeb";
 
 interface ReelItem {
   id: string;
@@ -38,7 +39,24 @@ const REELS: ReelItem[] = [
 
 export default function DemoReels() {
   const [unmutedId, setUnmutedId] = useState<string | null>(null);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+
+  useEffect(() => {
+    setReduceMotion(prefersReducedMotion());
+    return subscribeReducedMotion(setReduceMotion);
+  }, []);
+
+  useEffect(() => {
+    Object.entries(videoRefs.current).forEach(([key, el]) => {
+      if (!el) return;
+      if (reduceMotion && unmutedId !== key) {
+        el.pause();
+      } else if (!reduceMotion && el.paused) {
+        el.play().catch(() => {});
+      }
+    });
+  }, [reduceMotion, unmutedId]);
 
   const toggleSound = (id: string) => {
     const nextId = unmutedId === id ? null : id;
@@ -72,14 +90,17 @@ export default function DemoReels() {
                 }}
                 src={reel.video}
                 poster={reel.poster}
-                autoPlay
+                width={244}
+                height={434}
+                autoPlay={!reduceMotion}
                 loop
                 muted
                 playsInline
+                preload="metadata"
                 className="h-full w-full object-cover"
               />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
-              <span className="pointer-events-none absolute left-3.5 top-3.5 rounded-full border border-white/15 bg-black/60 px-2.5 py-0.5 font-mono text-[11px] font-medium text-white backdrop-blur-md">
+              <span className="pointer-events-none absolute left-3.5 top-3.5 rounded-full border border-white/15 bg-black/60 px-2.5 py-0.5 text-[11px] font-semibold text-white backdrop-blur-md">
                 {reel.label}
               </span>
               <button

@@ -21,7 +21,7 @@ DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "cap
             "trigger_words": "clip that, clip it",
             "autopost": False, "accounts": [], "post_min_score": 75, "post_gap_min": 45, "daily_cap": 6,
             "privacy": "public", "post_footer": "", "rate_per_1k": 0.0, "channels": {},
-            "lang": "en"}    # the language this creator speaks: picks the speech model, for live recordings too
+            "lang": "auto"}  # "auto" lets Faster-Whisper detect the language per stream/video automatically
 PLATFORMS = ("youtube", "twitch", "kick")
 
 
@@ -102,7 +102,7 @@ def _clean(data: dict) -> dict:
             v = v if v in ("public", "unlisted", "private") else "public"
         elif k == "lang":
             from . import transcribe
-            v = v if transcribe.known_language(v) else "en"
+            v = v if transcribe.known_language(v) else "auto"
         else:
             v = str(v).strip()[:300]
         out[k] = v

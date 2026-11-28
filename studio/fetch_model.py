@@ -1,186 +1,211 @@
-"""The speech-to-text models, one per spoken language, each downloaded once.
+"""Faster-Whisper speech model management: one multi-language model transcribes all languages.
 
-English comes first and by itself, the first time it is needed (about 480 MB). The others are only downloaded when
-someone asks for them, from Settings -> Speech models or when adding a video in that language. To add a language,
-add a row to MODELS: any NVIDIA NeMo transducer model exported for sherpa-onnx works the same way.
-
-A model is unpacked next to where it will live and moved into place only when it is whole, so a download that was
-cut off can never leave half a model behind. When a model's fingerprint (SHA-256) is known, the downloaded file is
-checked against it before anything is unpacked. (python -m studio.fetch_model [language] gets one ahead of time.)"""
-import hashlib
+A single Faster-Whisper model handles automatic language detection ("auto") as well as 99+ spoken
+languages. Models live under CLIPCUT_DATA/models/whisper (or CLIPCUT_MODELS/whisper) and are
+downloaded on first use or ahead of time with `python -m studio.fetch_model [size]`."""
 import shutil
 import sys
-import tarfile
 import threading
 import time
-import urllib.request
+from pathlib import Path
 
 from . import config, safe
 
-_SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+# Registered per-language archive models (empty: Faster-Whisper handles all languages from one model).
+MODELS = {}
+DEFAULT = ""
+WAIT = 60
 
-# language -> (name shown on the pages, the model's folder name, where it is downloaded from, size in MB, credit,
-#              the archive's SHA-256 fingerprint, or "" when it is not checked)
-# The folder name must also be the one folder inside the downloaded .tar.bz2.
-MODELS = {
-    "en": ("English", config.ASR_MODEL_NAME, _SHERPA + config.ASR_MODEL_NAME + ".tar.bz2", 480,
-           "Parakeet TDT 0.6b v2 by NVIDIA (CC-BY-4.0)", ""),
+# Faster-Whisper model sizes: name -> (label, approximate download size in MB, credit)
+WHISPER_MODELS = {
+    "tiny": ("Tiny", 75, "Faster-Whisper tiny (multilingual, MIT)"),
+    "base": ("Base", 145, "Faster-Whisper base (multilingual, MIT)"),
+    "small": ("Small", 465, "Faster-Whisper small (multilingual, MIT)"),
+    "medium": ("Medium", 1500, "Faster-Whisper medium (multilingual, MIT)"),
+    "large-v3": ("Large v3", 3000, "Faster-Whisper large-v3 (multilingual, MIT)"),
 }
-DEFAULT = "en"
-WAIT = 60   # seconds of silence from the connection before giving up, so a stalled download cannot hang everything
 
-_locks = {lang: threading.Lock() for lang in MODELS}
-state = {lang: {"doing": False, "percent": 0, "error": ""} for lang in MODELS}
+_locks = {k: threading.Lock() for k in WHISPER_MODELS}
+state = {k: {"doing": False, "percent": 0, "error": ""} for k in WHISPER_MODELS}
 
 
-class WrongFile(Exception):
-    """The downloaded file is not the one expected: its fingerprint does not match."""
+def whisper_root() -> Path:
+    return config.MODELS_DIR / "whisper"
 
 
-def known(lang) -> bool:
-    return lang in MODELS
-
-
-def label(lang) -> str:
-    return MODELS[lang][0] if lang in MODELS else str(lang)
-
-
-def folder(lang: str = DEFAULT):
-    return config.MODELS_DIR / MODELS[lang][1]
-
-
-def ready(lang: str = DEFAULT) -> bool:
-    """Is the whole model there: the word list and all three parts?"""
-    d = folder(lang)
-    if not (d / "tokens.txt").is_file():
-        return False
-    return all(any(d.glob(f"{part}*.onnx")) for part in ("encoder", "decoder", "joiner"))
-
-
-def status(lang: str) -> str:
-    """'ready', 'downloading' or 'missing'."""
-    return "ready" if ready(lang) else "downloading" if state[lang]["doing"] else "missing"
-
-
-def ensure(lang: str = DEFAULT, start: bool = True) -> None:
-    """Make sure the model is on this computer, downloading it if it is not. One download per language at a time:
-    anything else that needs it meanwhile waits for it here. With start=False nothing new is downloaded: this only
-    waits for a download that is already running, and says so if the model is not there."""
-    if ready(lang):
-        return
-    if not start:
-        while state[lang]["doing"] and not ready(lang):
-            time.sleep(1)
-        if ready(lang):
-            return
-        raise RuntimeError(f"{label(lang)} needs its speech model, which isn't on this computer yet. "
-                           "Add it in Settings → Speech models (an admin can do this), then try again.")
-    with _locks[lang]:
-        if not ready(lang):
-            _fetch(lang)
-
-
-def _save(lang: str, dest) -> str:
-    """Save the archive to dest, giving up if the connection goes quiet for WAIT seconds. Returns its SHA-256."""
-    st, digest = state[lang], hashlib.sha256()
-    with urllib.request.urlopen(MODELS[lang][2], timeout=WAIT) as r, open(dest, "wb") as f:
-        total, got = int(r.headers.get("Content-Length") or 0), 0
-        while chunk := r.read(1 << 20):
-            f.write(chunk)
-            digest.update(chunk)
-            got += len(chunk)
-            if total > 0:
-                st["percent"] = min(99, got * 100 // total)
-    return digest.hexdigest()
-
-
-def _fetch(lang: str):
-    name, size, want = MODELS[lang][1], MODELS[lang][3], MODELS[lang][5]
-    st = state[lang]
-    st.update(doing=True, percent=0, error="")
-    print(f"\n  Downloading the {label(lang)} speech model (one time, about {size} MB)...\n", flush=True)
-    config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    tmp, part = config.MODELS_DIR / f"speech-model-{lang}.tar.bz2", config.MODELS_DIR / f"speech-model-{lang}.unpacking"
+def _active_size() -> str:
     try:
-        got_sha = _save(lang, tmp)
-        if want and got_sha != want:
-            raise WrongFile(f"its fingerprint (SHA-256) is {got_sha}, but ClipCut expects {want}")
-        shutil.rmtree(part, ignore_errors=True)
-        part.mkdir()
-        with tarfile.open(tmp, "r:bz2") as t:
-            for m in t.getmembers():  # only plain files and folders that stay inside the unpacking folder
-                if (m.isfile() or m.isdir()) and not m.name.startswith(("/", "..")) and ".." not in m.name.split("/"):
-                    t.extract(m, part)
-        got = part / name
-        if not got.is_dir():
-            raise OSError("the download did not contain the model")
-        shutil.rmtree(folder(lang), ignore_errors=True)        # a half-finished one from before
-        got.rename(folder(lang))
+        from . import transcribe
+        sz = transcribe.speech_settings()["whisper_model"]
+        if sz in WHISPER_MODELS:
+            return sz
+    except Exception:  # noqa: BLE001
+        pass
+    return config.WHISPER_MODEL if config.WHISPER_MODEL in WHISPER_MODELS else "base"
+
+
+def known(target: str) -> bool:
+    return str(target or "").strip().lower() in WHISPER_MODELS
+
+
+def label(target: str) -> str:
+    key = str(target or "").strip().lower()
+    return f"Faster-Whisper ({WHISPER_MODELS[key][0]})" if key in WHISPER_MODELS else f"Faster-Whisper ({target})"
+
+
+def folder(size: str = "") -> Path:
+    key = (size or _active_size()).strip().lower()
+    return whisper_root() / f"models--Systran--faster-whisper-{key}"
+
+
+def ready(size: str = "") -> bool:
+    """True if this Faster-Whisper model size is already cached locally on disk."""
+    key = (size or _active_size()).strip().lower()
+    if key not in WHISPER_MODELS:
+        return False
+    root = whisper_root()
+    if not root.exists():
+        return False
+    d = folder(key)
+    if (d / "model.bin").is_file() or any(d.glob("snapshots/*/model.bin")):
+        return True
+    try:
+        from faster_whisper import download_model
+        got = Path(download_model(key, cache_dir=str(root), local_files_only=True))
+        return got.is_dir() and any(got.iterdir())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def status(size: str = "") -> str:
+    """'ready', 'downloading' or 'missing'."""
+    key = (size or _active_size()).strip().lower()
+    if key not in WHISPER_MODELS:
+        return "missing"
+    return "ready" if ready(key) else "downloading" if state[key]["doing"] else "missing"
+
+
+def list_models(active_size: str = "") -> list:
+    active = (active_size or _active_size()).strip().lower()
+    return [
+        {
+            "id": k,
+            "lang": k,
+            "label": info[0],
+            "size_mb": info[1],
+            "credit": info[2],
+            "state": status(k),
+            "percent": state[k]["percent"],
+            "error": state[k]["error"],
+            "active": k == active,
+            "default": k == active,
+        }
+        for k, info in WHISPER_MODELS.items()
+    ]
+
+
+def _download_whisper(size: str) -> Path:
+    from faster_whisper import download_model
+    root = whisper_root()
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(download_model(size, cache_dir=str(root), local_files_only=False))
+
+
+def _fetch(size: str) -> None:
+    st = state[size]
+    mb = WHISPER_MODELS[size][1]
+    st.update(doing=True, percent=0, error="")
+    print(f"\n  Downloading {label(size)} speech model (one time, about {mb} MB)...\n", flush=True)
+    try:
+        _download_whisper(size)
         st["percent"] = 100
-        print(f"  {label(lang)} speech model ready.\n", flush=True)
-    except WrongFile as e:
-        st["error"] = f"The downloaded file is not the expected one: {e}."
-        raise RuntimeError(f"ClipCut downloaded the {label(lang)} speech model, but the file is not the one it expects, "
-                           "so it was not used: it may have been changed or damaged on the way. Nothing was unpacked. "
-                           "Try again later. If a different download address was set (a mirror), it must hold the very "
-                           f"same file. Details: {e}.") from e
+        print(f"  {label(size)} speech model ready.\n", flush=True)
     except Exception as e:  # noqa: BLE001
         st["error"] = safe.friendly(e, 200)
-        raise RuntimeError(f"ClipCut couldn't download its {label(lang)} speech model (about {size} MB, needed once). "
-                           "Check the internet connection and free disk space, then try again, or run "
-                           f"python -m studio.fetch_model {lang} to see what goes wrong. What it reported: {st['error']}") from e
+        raise RuntimeError(
+            f"ClipCut couldn't download {label(size)} (about {mb} MB, needed once). "
+            "Check the internet connection and free disk space, then try again, or run "
+            f"python -m studio.fetch_model {size} to see what goes wrong. What it reported: {st['error']}"
+        ) from e
     finally:
         st["doing"] = False
-        tmp.unlink(missing_ok=True)
-        shutil.rmtree(part, ignore_errors=True)
 
 
-def start(lang: str) -> None:
-    """Begin downloading in the background (from the pages); progress is in state[lang]."""
-    if ready(lang) or state[lang]["doing"]:
+def ensure(size: str = "", start: bool = True) -> None:
+    """Make sure the Faster-Whisper model is on this machine, downloading it if needed."""
+    key = (size or _active_size()).strip().lower()
+    if key in ("auto", "faster-whisper", "whisper", ""):
+        key = _active_size()
+    if key not in WHISPER_MODELS:
+        raise ValueError(f"Unknown Faster-Whisper model size {key!r}. Choose one of: {', '.join(WHISPER_MODELS)}")
+    if ready(key):
         return
-    state[lang].update(doing=True, percent=0, error="")    # shown as downloading straight away
+    if not start:
+        while state[key]["doing"] and not ready(key):
+            time.sleep(1)
+        if ready(key):
+            return
+        raise RuntimeError(
+            f"{label(key)} isn't cached yet. Open Settings -> Speech, download it, or allow automatic download."
+        )
+    with _locks[key]:
+        if not ready(key):
+            _fetch(key)
+
+
+def start(size: str) -> None:
+    """Begin downloading a Faster-Whisper size in the background; progress is in state[size]."""
+    key = (size or _active_size()).strip().lower()
+    if key not in WHISPER_MODELS:
+        raise ValueError(f"Unknown Faster-Whisper model size {key!r}.")
+    if ready(key) or state[key]["doing"]:
+        return
+    state[key].update(doing=True, percent=0, error="")
 
     def run():
         try:
-            with _locks[lang]:
-                if not ready(lang):
-                    _fetch(lang)
-        except Exception:  # noqa: BLE001 - the reason is kept in state[lang]["error"]
+            with _locks[key]:
+                if not ready(key):
+                    _fetch(key)
+        except Exception:  # noqa: BLE001 - reason is kept in state[key]["error"]
             pass
         finally:
-            state[lang]["doing"] = False
-    threading.Thread(target=run, daemon=True, name=f"fetch-{lang}").start()
+            state[key]["doing"] = False
+
+    threading.Thread(target=run, daemon=True, name=f"fetch-{key}").start()
 
 
-def remove(lang: str) -> None:
-    """Delete a downloaded model to free the space. English stays: it is what ClipCut uses by default."""
+def remove(size: str) -> None:
+    """Delete a cached Faster-Whisper model size to free disk space."""
     from . import transcribe
-    if lang == DEFAULT:
-        raise ValueError("The English speech model is always kept.")
-    with _locks[lang]:
-        if state[lang]["doing"]:
-            raise RuntimeError(f"The {label(lang)} speech model is still downloading.")
-        if not transcribe.unload(lang):
-            raise RuntimeError(f"The {label(lang)} speech model is being used right now. Try again when the videos "
-                               "in that language are done.")
+    key = (size or "").strip().lower()
+    if key not in WHISPER_MODELS:
+        raise ValueError("ClipCut has no speech model size by that name.")
+    if key == _active_size():
+        raise ValueError("Switch to another Faster-Whisper model size before removing the active one.")
+    with _locks[key]:
+        if state[key]["doing"]:
+            raise RuntimeError(f"{label(key)} is still downloading.")
+        if not transcribe.unload(key):
+            raise RuntimeError(f"{label(key)} is being used right now. Try again when videos finish.")
         try:
-            shutil.rmtree(folder(lang))
+            shutil.rmtree(folder(key))
         except FileNotFoundError:
             pass
         except OSError as e:
-            raise RuntimeError(f"Couldn't delete the {label(lang)} speech model: {e}") from e
-        state[lang].update(percent=0, error="")
+            raise RuntimeError(f"Couldn't delete {label(key)}: {e}") from e
+        state[key].update(percent=0, error="")
 
 
 def main():
-    lang = sys.argv[1] if len(sys.argv) > 1 else DEFAULT
-    if lang not in MODELS:
-        raise SystemExit(f"Unknown language {lang!r}. Known: {', '.join(MODELS)}")
-    if ready(lang):
-        print(f"{label(lang)} speech model already present.")
+    arg = sys.argv[1] if len(sys.argv) > 1 else _active_size()
+    key = _active_size() if arg in ("auto", "whisper", "faster-whisper", "") else arg.strip().lower()
+    if key not in WHISPER_MODELS:
+        raise SystemExit(f"Unknown model size {key!r}. Known: {', '.join(WHISPER_MODELS)}")
+    if ready(key):
+        print(f"{label(key)} speech model already present.")
         return
-    ensure(lang)
+    ensure(key)
 
 
 if __name__ == "__main__":

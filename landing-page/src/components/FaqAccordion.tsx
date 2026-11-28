@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { ChevronDown } from "lucide-react";
 
 interface FaqItem {
@@ -21,7 +21,7 @@ const FAQS: FaqItem[] = [
   },
   {
     q: "Which video sources and caption languages work?",
-    a: "Paste YouTube, Twitch, or Kick links, upload local video files, or monitor live streams. Speech-to-text supports English via sherpa-onnx (Parakeet 0.6b) and multilingual transcription via faster-whisper.",
+    a: "Paste YouTube, Twitch, or Kick links, upload local video files, or monitor live streams. Speech-to-text uses Faster-Whisper by default for automatic language detection and multi-language transcription across 99+ languages from one model.",
   },
   {
     q: "Can I edit hooks, trim timing, or mix background music after?",
@@ -30,35 +30,27 @@ const FAQS: FaqItem[] = [
 ];
 
 export default function FaqAccordion() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
-
   return (
-    <div className="divide-y divide-white/10 rounded-2xl border border-white/10 bg-[#111114]">
-      {FAQS.map((item, idx) => {
-        const isOpen = openIndex === idx;
-        return (
-          <div key={item.q} className="px-6 py-5">
-            <button
-              type="button"
-              onClick={() => setOpenIndex(isOpen ? null : idx)}
-              aria-expanded={isOpen}
-              className="flex w-full cursor-pointer items-center justify-between gap-4 text-left"
-            >
-              <span className="text-base font-semibold text-white">{item.q}</span>
-              <ChevronDown
-                className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-200 ${
-                  isOpen ? "rotate-180 text-[#ff7a2f]" : ""
-                }`}
-              />
-            </button>
-            {isOpen && (
-              <p className="mt-3 pr-8 text-sm leading-relaxed text-zinc-400">
-                {item.a}
-              </p>
-            )}
-          </div>
-        );
-      })}
+    <div className="divide-y divide-white/10 rounded-3xl border border-white/10 bg-[#060606]">
+      {FAQS.map((item, idx) => (
+        <details
+          key={item.q}
+          name="clipcut-faq"
+          open={idx === 0}
+          className="faq-details group px-6 py-5 sm:px-8"
+        >
+          <summary className="flex w-full cursor-pointer items-center justify-between gap-4 text-left select-none focus-visible:rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#ff7a2f]">
+            <h3 className="text-base font-semibold text-[#fbf7f2]">{item.q}</h3>
+            <ChevronDown
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 text-[#8f8176] transition-transform duration-200 group-open:rotate-180 group-open:text-[#ff7a2f]"
+            />
+          </summary>
+          <p className="mt-3 pr-8 text-sm leading-relaxed text-[#b5a79c]">
+            {item.a}
+          </p>
+        </details>
+      ))}
     </div>
   );
 }

@@ -310,7 +310,7 @@ def save_thumb(job_dir: Path, url: str = "", video: Path = None) -> bool:
         if video:
             d = probe(video).get("duration") or 0
             run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{min(3.0, d / 3):.2f}", "-i", str(video),
-                 "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", str(out)])
+                 "-frames:v", "1", "-update", "1", "-vf", "scale=480:-2", "-q:v", "4", str(out)])
             return out.is_file()
     except Exception:
         return False
@@ -379,7 +379,11 @@ def probe(path: Path) -> dict:
     rot = str((v.get("side_data_list") or [{}])[0].get("rotation", "0"))
     if rot.lstrip("-") in ("90", "270"):
         w, h = h, w
-    return {"width": w, "height": h, "duration": float(data["format"]["duration"])}
+    trc = str(v.get("color_transfer") or "").lower()
+    prim = str(v.get("color_primaries") or "").lower()
+    space = str(v.get("color_space") or "").lower()
+    hdr = trc in ("smpte2084", "arib-std-b67") or "bt2020" in prim or "bt2020" in space
+    return {"width": w, "height": h, "duration": float(data["format"]["duration"]), "hdr": hdr}
 
 
 def extract_audio(src: Path, wav: Path):

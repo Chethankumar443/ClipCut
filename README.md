@@ -14,7 +14,6 @@
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![yt-dlp](https://img.shields.io/badge/yt--dlp-FF0000?logo=youtube&logoColor=white)](https://github.com/yt-dlp/yt-dlp)
 [![Faster-Whisper](https://img.shields.io/badge/Faster--Whisper-Multilingual%20ASR-111111)](https://github.com/SYSTRAN/faster-whisper)
-[![Sherpa-ONNX](https://img.shields.io/badge/Sherpa--ONNX-Parakeet%200.6b-2B5B84)](https://github.com/k2-fsa/sherpa-onnx)
 [![librosa](https://img.shields.io/badge/librosa-Audio%20Energy-ff7a2f)](https://librosa.org/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-SQLite%20%7C%20PostgreSQL-D71F00?logo=postgresql&logoColor=white)](https://www.sqlalchemy.org/)
 [![Astro 5](https://img.shields.io/badge/Astro-5-BC52EE?logo=astro&logoColor=white)](landing-page/)
@@ -46,12 +45,12 @@
 
 ## About ClipCut
 
-**ClipCut** is a free, **open-source OpusClip alternative** and **self-hosted AI video clipping studio** built with **FastAPI**, **FFmpeg**, **yt-dlp**, **librosa**, **sherpa-onnx**, and **faster-whisper**.
+**ClipCut** is a free, **open-source OpusClip alternative** and **self-hosted AI video clipping studio** built with **FastAPI**, **FFmpeg**, **yt-dlp**, **librosa**, and **faster-whisper**.
 
-Designed for creators, streamers, editors, and agencies looking for an automated **YouTube Shorts generator**, **TikTok clip maker**, **Instagram Reels generator**, or **podcast highlight extractor** with zero subscriptions or watermarks:
+Designed for creators, streamers, and editors, and agencies looking for an automated **YouTube Shorts generator**, **TikTok clip maker**, **Instagram Reels generator**, or **podcast highlight extractor** with zero subscriptions or watermarks:
 
 - Paste any **YouTube**, **Twitch**, or **Kick** video/VOD URL, upload multi-gigabyte local files via resumable chunked uploads, or monitor live streams 24/7.
-- Automatically transcribe speech in **99+ languages** (`faster-whisper` multimodal auto-detect or local `sherpa-onnx` Parakeet 0.6b), detect vocal energy spikes (`librosa`), read **YouTube Most-Replayed** trending sectors, score live chat bursts and streamer facial expressions, synthesize viral hooks autonomously, and render vertical `9:16`, square `1:1`, or landscape `16:9` clips with animated word-level captions and BGM auto-ducking.
+- Automatically transcribe speech in **99+ languages** from a single multi-language **Faster-Whisper** model (with automatic language detection), detect vocal energy spikes (`librosa`), read **YouTube Most-Replayed** trending sectors, score live chat bursts and streamer facial expressions, synthesize viral hooks autonomously, and render vertical `9:16`, square `1:1`, or landscape `16:9` clips with animated word-level captions and BGM auto-ducking.
 
 ---
 
@@ -60,7 +59,7 @@ Designed for creators, streamers, editors, and agencies looking for an automated
 ```mermaid
 flowchart LR
     A["Link / Chunked Upload / Live Stream"] --> B["yt-dlp & Media Probe"]
-    B --> C["Hybrid ASR (YT Captions / Parakeet 0.6b / Faster-Whisper Auto)"]
+    B --> C["Hybrid ASR (YT Captions + Faster-Whisper Multilingual)"]
     C --> D["Trending Signal Engine (Most-Replayed + Mic RMS + Chat + Expression)"]
     D --> E["AI Hook Scoring & Autonomous Hook Synthesis"]
     E --> F["FFmpeg Render (9:16, 1:1, 16:9) + Word-Level ASS Captions"]
@@ -125,18 +124,13 @@ Configure your AI provider in **Settings → AI** or via `.env` (`CLIPCUT_AI_PRO
 
 ## Speech Recognition & Auto Language Detection
 
-ClipCut pairs fast local English recognition with multimodal multilingual transcription (`studio/transcribe.py`, configured live in **Settings → Speech** via `/api/speech` and stored in `data/speech.json`):
+ClipCut uses **Faster-Whisper** as its single default multi-language speech-to-text engine (`studio/transcribe.py`, configured live in **Settings → Speech** via `/api/speech` and stored in `data/speech.json`):
 
-1. **Existing Video Transcripts:** Reads captions first via `youtube-transcript-api` or `yt-dlp` when available (`CLIPCUT_YT_TRANSCRIPT=1`), running local word-accurate alignment on selected clips.
-2. **Faster-Whisper (Multimodal · 99+ Languages):**
-   - Automatically detects the spoken language directly from video audio when set to **Auto-detect (`auto`)**, or transcribes an explicitly chosen language (`en`, `ar`, `es`, `fr`, `de`, `hi`, `ja`, `ko`, `pt`, `ru`, `zh`, `it`, `tr`, etc.).
-   - Configurable model size (`tiny`, `base`, `small`, `medium`, `large-v3`) directly from **Settings → Speech**, with in-memory model caching and non-English / Hindi / Urdu Romanization fallback (`studio/roman.py`).
-3. **English Sherpa-ONNX (`Parakeet TDT 0.6b v2`):**
-   - High-speed ~480 MB local CPU/GPU model downloaded automatically on first startup, or ahead of time via:
-     ```bash
-     python -m studio.fetch_model
-     ```
-4. **Remote GPU ASR Worker:** Offload heavy speech workloads over HTTP to a separate CUDA machine using `studio/asr_worker.py` and `deploy/gpu/`, with automatic fallback to local CPU if the worker is unreachable.
+1. **Existing Video Transcripts:** Reads captions first via `youtube-transcript-api` or `yt-dlp` when available (`CLIPCUT_YT_TRANSCRIPT=1`), running local Faster-Whisper word-accurate alignment on selected clips in any language.
+2. **Faster-Whisper (Default · 99+ Languages):**
+   - A single model automatically detects the spoken language from video audio (`auto`) or transcribes any explicitly selected language (`en`, `ar`, `es`, `fr`, `de`, `hi`, `ja`, `ko`, `pt`, `ru`, `zh`, `it`, `tr`, etc.).
+   - Configurable model size (`tiny`, `base`, `small`, `medium`, `large-v3`) directly from **Settings → Speech**, cached in `data/models/whisper` (or pre-fetched via `python -m studio.fetch_model`), with non-Latin / Hindi / Urdu Romanization fallback (`studio/roman.py`).
+3. **Remote GPU ASR Worker:** Offload Faster-Whisper transcription over HTTP to a separate CUDA machine using `studio/asr_worker.py` and `deploy/gpu/`, with automatic fallback to local CPU if the worker is unreachable.
 
 ---
 
@@ -148,7 +142,7 @@ ClipCut pairs fast local English recognition with multimodal multilingual transc
 
 ### 2. Clone & Install
 
-> **Windows note:** Install into a short path such as `C:\clipcut` to avoid Windows' 260-character `MAX_PATH` limit when loading native `sherpa-onnx` libraries.
+> **Windows note:** Install into a short path such as `C:\clipcut` to keep paths clean for local storage and temporary render folders.
 
 ```bash
 git clone https://github.com/Chethankumar443/ClipCut.git C:\clipcut   # or ~/clipcut on macOS/Linux
@@ -234,7 +228,7 @@ All settings are read from `.env` or process environment variables (see [.env.ex
 | `CLIPCUT_AI_PROVIDER` | `gemini` | Default AI provider (`gemini`, `openai`, `xai`, `groq`, `openrouter`, `anthropic`, `ollama`, `custom`) |
 | `CLIPCUT_AI_MODELS` | *(empty)* | Comma-separated fallback model IDs |
 | `CLIPCUT_AI_KEY` | *(empty)* | API key (or `CLIPCUT_AI_KEY_FILE` for Docker secret mounts) |
-| `CLIPCUT_ASR_ENGINE` | `auto` | Default speech engine (`auto`, `faster-whisper`, `sherpa`) |
+| `CLIPCUT_ASR_ENGINE` | `faster-whisper` | Default speech engine (`faster-whisper`) |
 | `CLIPCUT_WHISPER_MODEL` | `base` | Default Faster-Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`) |
 | `CLIPCUT_JOB_WORKERS` | CPU count | Max concurrent VOD clipping workers |
 | `CLIPCUT_MAX_LIVE` | `2 × CPU count` | Max concurrent live stream recordings |
@@ -251,8 +245,8 @@ All settings are read from `.env` or process environment variables (see [.env.ex
 | [studio/config.py](studio/config.py) | Environment variable & `*_FILE` secret resolution |
 | [studio/jobs.py](studio/jobs.py) | Fair user queue, VOD pipeline orchestration, clip recovery, and BGM mixing |
 | [studio/media.py](studio/media.py) | `yt-dlp` fetching, `youtube-transcript-api`, `librosa` energy & replay heatmap extraction |
-| [studio/transcribe.py](studio/transcribe.py) | Hybrid ASR (`sherpa-onnx`, Faster-Whisper auto/multilingual, remote GPU worker) |
-| [studio/fetch_model.py](studio/fetch_model.py) | Verified Sherpa-ONNX model registry (`MODELS`) and atomic archive downloader |
+| [studio/transcribe.py](studio/transcribe.py) | Multi-language Faster-Whisper ASR & remote GPU worker client |
+| [studio/fetch_model.py](studio/fetch_model.py) | Faster-Whisper model size registry (`WHISPER_MODELS`) and downloader |
 | [studio/brain.py](studio/brain.py) | Prompt rules, Most-Replayed/energy hook scoring, `_auto_hook`, facial expression judge, taste rules |
 | [studio/render.py](studio/render.py) | Multi-aspect FFmpeg rendering (`9:16`, `1:1`, `16:9`), animated ASS captions, BGM auto-ducking |
 | [studio/ai.py](studio/ai.py) | Unified chat/vision provider interface (`PROVIDERS`) and dashboard `ai.json` persistence |

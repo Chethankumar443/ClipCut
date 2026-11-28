@@ -31,9 +31,8 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 
   <h2>Speech Recognition (ASR)</h2>
   <p>
-    ClipCut checks YouTube transcripts first when <code>CLIPCUT_YT_TRANSCRIPT=1</code>, then falls
-    back to local <code>sherpa-onnx</code> (Parakeet 0.6b, ~480 MB) for English or{" "}
-    <code>faster-whisper</code> for multilingual and Arabic speech, plus Hindi/Urdu Romanized
-    captions.
+    ClipCut checks YouTube transcripts first when <code>CLIPCUT_YT_TRANSCRIPT=1</code>, then uses{" "}
+    <code>faster-whisper</code> as its single default multi-language speech-to-text model (handling
+    automatic language detection and 99+ languages), plus Hindi/Urdu Romanized captions.
   </p>
 </DocsLayout>

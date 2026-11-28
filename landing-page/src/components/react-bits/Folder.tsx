@@ -64,17 +64,17 @@ export default function Folder({
 
         <div className="rb-folder__front">
           <div className="flex items-center justify-between">
-            <span className="rounded-full bg-[#140b05]/20 px-2.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-[#140b05] uppercase">
+            <span className="rounded-full bg-[#140b05]/20 px-2.5 py-0.5 text-[10px] font-semibold tracking-wider text-[#140b05] uppercase">
               {open ? "Open" : "Folder"}
             </span>
-            <span className="font-mono text-[11px] font-semibold text-[#140b05]/75">
+            <span className="text-[11px] font-semibold text-[#140b05]/75 tabular-nums">
               {sublabel}
             </span>
           </div>
 
           <div className="text-left">
             <div className="font-serif text-2xl leading-none text-[#140b05]">{label}</div>
-            <div className="mt-1 font-mono text-[11px] font-medium text-[#140b05]/75">
+            <div className="mt-1 text-[11px] font-medium text-[#140b05]/75">
               {open ? "Click a clip to watch fullscreen" : "Click to reveal 3 clips"}
             </div>
           </div>

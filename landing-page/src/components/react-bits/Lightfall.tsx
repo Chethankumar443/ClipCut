@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { onContentVisibilityChange, prefersReducedMotion, subscribeReducedMotion } from '../../lib/modernWeb';
 
 import './Lightfall.css';
 
@@ -105,7 +106,7 @@ void main() {
   float along = scale / det;
   float skew = dot(gradX, gradTheta) / det;
   float spacing = SPACING / scale;
-  float detail = smoothstep(1.6, 3.2, spacing);
+  float detail = smoothstep(1.1, 2.4, spacing);
   if (detail <= 0.0) {
     outColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
@@ -266,9 +267,9 @@ const INTRO_SECONDS = 2.6;
 const WARP_SPEED = 9;
 const TAU = Math.PI * 2;
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const compile = (gl, type, source) => {
+const compile = (gl: WebGL2RenderingContext, type: number, source: string) => {
   const shader = gl.createShader(type);
   if (!shader) return null;
   gl.shaderSource(shader, source);
@@ -278,7 +279,7 @@ const compile = (gl, type, source) => {
   return null;
 };
 
-const link = (gl, fragmentSource) => {
+const link = (gl: WebGL2RenderingContext, fragmentSource: string) => {
   const vertex = compile(gl, gl.VERTEX_SHADER, VERTEX);
   const fragment = compile(gl, gl.FRAGMENT_SHADER, fragmentSource);
   const program = gl.createProgram();
@@ -293,7 +294,7 @@ const link = (gl, fragmentSource) => {
     gl.deleteProgram(program);
     return null;
   }
-  const uniforms = {};
+  const uniforms: Record<string, WebGLUniformLocation | null> = {};
   const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
   for (let i = 0; i < count; i++) {
     const info = gl.getActiveUniform(program, i);
@@ -301,6 +302,36 @@ const link = (gl, fragmentSource) => {
   }
   return { program, uniforms };
 };
+
+export interface LightfallProps extends React.HTMLAttributes<HTMLDivElement> {
+  colors?: string[];
+  backgroundColor?: string;
+  speed?: number;
+  streakCount?: number;
+  streakWidth?: number;
+  streakLength?: number;
+  glow?: number;
+  density?: number;
+  twinkle?: number;
+  zoom?: number;
+  backgroundGlow?: number;
+  headGlow?: number;
+  depth?: number;
+  bloom?: number;
+  opacity?: number;
+  mouseInteraction?: boolean;
+  mouseStrength?: number;
+  mouseRadius?: number;
+  mouseDampening?: number;
+  lens?: number;
+  holdToWarp?: boolean;
+  intro?: boolean;
+  fade?: number;
+  lightMode?: boolean;
+  mixBlendMode?: React.CSSProperties['mixBlendMode'];
+  paused?: boolean;
+  dpr?: number;
+}
 
 const Lightfall = ({
   colors = ['#ffffff'],
@@ -331,14 +362,13 @@ const Lightfall = ({
   paused = false,
   dpr,
   className = '',
-  style
-}) => {
-  const containerRef = useRef(null);
-  const canvasRef = useRef(null);
-  const wakeRef = useRef(null);
-  const settingsRef = useRef(null);
-  const [generation, setGeneration] = useState(0);
-  settingsRef.current = {
+  style,
+  ...rest
+}: LightfallProps) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wakeRef = useRef<(() => void) | null>(null);
+  const initialSettings = {
     colors: (Array.isArray(colors) && colors.length ? colors : ['#ffffff']).slice(0, MAX_COLORS).map(String),
     backgroundColor: String(backgroundColor),
     speed,
@@ -366,6 +396,10 @@ const Lightfall = ({
     paused,
     dpr
   };
+  const settingsRef = useRef(initialSettings);
+  const [generation, setGeneration] = useState(0);
+  const [webglState, setWebglState] = useState('loading');
+  settingsRef.current = initialSettings;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -378,19 +412,34 @@ const Lightfall = ({
       stencil: false,
       powerPreference: 'high-performance'
     });
-    if (!container || !canvas || !gl) return undefined;
+    if (!container || !canvas || !gl) {
+      setWebglState('fallback');
+      return undefined;
+    }
 
     const floatTargets = !!gl.getExtension('EXT_color_buffer_float');
     const streakProgram = link(gl, STREAKS);
     const downProgram = link(gl, DOWNSAMPLE);
     const blurProgram = link(gl, BLUR);
     const compositeProgram = link(gl, COMPOSITE);
-    if (!streakProgram || !downProgram || !blurProgram || !compositeProgram) return undefined;
+    if (!streakProgram || !downProgram || !blurProgram || !compositeProgram) {
+      setWebglState('fallback');
+      return undefined;
+    }
 
-    const onContextLost = event => {
+    let raf = 0;
+    const onContextLost = (event: Event) => {
       event.preventDefault();
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+      setWebglState('fallback');
     };
-    const onContextRestored = () => setGeneration(value => value + 1);
+    const onContextRestored = () => {
+      setWebglState('loading');
+      setGeneration(value => value + 1);
+    };
     canvas.addEventListener('webglcontextlost', onContextLost);
     canvas.addEventListener('webglcontextrestored', onContextRestored);
 
@@ -402,45 +451,70 @@ const Lightfall = ({
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-    const format = floatTargets ? gl.RGBA16F : gl.RGBA8;
-    const encode = floatTargets ? 1 : 0.25;
-    const createTarget = () => ({ texture: null, framebuffer: gl.createFramebuffer(), width: 0, height: 0 });
+    let format = floatTargets ? gl.RGBA16F : gl.RGBA8;
+    let encode = floatTargets ? 1 : 0.25;
+    interface RenderTarget {
+      texture: WebGLTexture | null;
+      framebuffer: WebGLFramebuffer | null;
+      width: number;
+      height: number;
+    }
+    const createTarget = (): RenderTarget => ({ texture: null, framebuffer: gl.createFramebuffer(), width: 0, height: 0 });
     const scene = createTarget();
-    const levels = Array.from({ length: BLOOM_LEVELS }, () => [createTarget(), createTarget()]);
+    const levels: [RenderTarget, RenderTarget][] = Array.from({ length: BLOOM_LEVELS }, () => [createTarget(), createTarget()]);
 
-    const allocate = (target, width, height) => {
-      if (target.texture && target.width === width && target.height === height) return;
+    const allocateTarget = (target: RenderTarget, width: number, height: number, texFormat: number) => {
       if (target.texture) gl.deleteTexture(target.texture);
       target.texture = gl.createTexture();
       target.width = width;
       target.height = height;
       gl.bindTexture(gl.TEXTURE_2D, target.texture);
-      gl.texStorage2D(gl.TEXTURE_2D, 1, format, width, height);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, texFormat, width, height);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target.texture, 0);
+      return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     };
 
-    const pass = (target, program) => {
+    const allocate = (target: RenderTarget, width: number, height: number) => {
+      if (target.texture && target.width === width && target.height === height) return true;
+      if (allocateTarget(target, width, height, format)) return true;
+      if (format === gl.RGBA16F) {
+        format = gl.RGBA8;
+        encode = 0.25;
+        [scene, ...levels.flat()].forEach(item => {
+          if (item.texture) {
+            gl.deleteTexture(item.texture);
+            item.texture = null;
+            item.width = 0;
+            item.height = 0;
+          }
+        });
+        if (allocateTarget(target, width, height, format)) return true;
+      }
+      return false;
+    };
+
+    const pass = (target: RenderTarget | null, program: { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null> }) => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.framebuffer : null);
       gl.viewport(0, 0, target ? target.width : canvas.width, target ? target.height : canvas.height);
       gl.useProgram(program.program);
       return program.uniforms;
     };
 
-    const bind = (unit, texture) => {
+    const bind = (unit: number, texture: WebGLTexture | null) => {
       gl.activeTexture(gl.TEXTURE0 + unit);
       gl.bindTexture(gl.TEXTURE_2D, texture);
     };
 
     const probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-    const colorCache = new Map();
-    const toRgb = value => {
-      if (colorCache.has(value)) return colorCache.get(value);
-      let rgb = [1, 1, 1];
+    const colorCache = new Map<string, [number, number, number]>();
+    const toRgb = (value: string): [number, number, number] => {
+      if (colorCache.has(value)) return colorCache.get(value)!;
+      let rgb: [number, number, number] = [1, 1, 1];
       if (probe) {
         probe.clearRect(0, 0, 1, 1);
         probe.fillStyle = '#ffffff';
@@ -452,9 +526,9 @@ const Lightfall = ({
       colorCache.set(value, rgb);
       return rgb;
     };
-    const toLinear = value => toRgb(value).map(channel => channel * channel);
+    const toLinear = (value: string) => toRgb(value).map(channel => channel * channel);
 
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let reduce = prefersReducedMotion();
     const palette = new Float32Array(MAX_COLORS * 3);
     const pointer = { x: 0, y: 0, inside: false, held: false };
     const state = {
@@ -467,24 +541,32 @@ const Lightfall = ({
       touch: 0,
       warp: 0
     };
-    let raf = 0;
     let last = 0;
     let visible = true;
+    let contentSkipped = false;
+    let readyEmitted = false;
 
     const render = () => {
+      if (gl.isContextLost()) return;
       const s = settingsRef.current;
       const width = canvas.width;
       const height = canvas.height;
       const cssWidth = Math.max(1, container.clientWidth);
       const cssHeight = Math.max(1, container.clientHeight);
       gl.bindVertexArray(vao);
-      allocate(scene, width, height);
-      levels.forEach((pair, index) => {
+      if (!allocate(scene, width, height)) {
+        setWebglState('fallback');
+        return;
+      }
+      for (let index = 0; index < levels.length; index++) {
+        const pair = levels[index];
         const levelWidth = Math.max(1, Math.round(cssWidth / 2 ** (index + 1)));
         const levelHeight = Math.max(1, Math.round(cssHeight / 2 ** (index + 1)));
-        allocate(pair[0], levelWidth, levelHeight);
-        allocate(pair[1], levelWidth, levelHeight);
-      });
+        if (!allocate(pair[0], levelWidth, levelHeight) || !allocate(pair[1], levelWidth, levelHeight)) {
+          setWebglState('fallback');
+          return;
+        }
+      }
 
       const introVal = state.intro;
       const presence = Math.min(1, introVal * 2.2);
@@ -497,8 +579,8 @@ const Lightfall = ({
       palette.fill(0);
       for (let i = 0; i < MAX_COLORS; i++) palette.set(list[Math.min(i, list.length - 1)], i * 3);
 
-      const toScreenX = value => (2 * value - width) / width;
-      const toScreenY = value => (2 * value - height) / width;
+      const toScreenX = (value: number) => (2 * value - width) / width;
+      const toScreenY = (value: number) => (2 * value - height) / width;
 
       const r = pass(scene, streakProgram);
       gl.uniform2f(r.uView, width, height);
@@ -579,11 +661,15 @@ const Lightfall = ({
       gl.uniform1f(c.uTopGlow, s.backgroundGlow);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       for (let unit = BLOOM_LEVELS; unit >= 0; unit--) bind(unit, null);
+      if (!readyEmitted && !gl.isContextLost()) {
+        readyEmitted = true;
+        setWebglState('ready');
+      }
     };
 
-    const frame = now => {
+    const frame = (now: number) => {
       raf = 0;
-      if (!visible || document.hidden) return;
+      if (!visible || contentSkipped || document.hidden || gl.isContextLost()) return;
       const s = settingsRef.current;
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60;
       last = now;
@@ -622,28 +708,32 @@ const Lightfall = ({
     };
 
     const wake = () => {
-      if (!raf && visible && !document.hidden) raf = requestAnimationFrame(frame);
+      if (!raf && visible && !contentSkipped && !document.hidden && !gl.isContextLost()) raf = requestAnimationFrame(frame);
     };
 
     const resize = () => {
+      if (gl.isContextLost()) return;
       const s = settingsRef.current;
       const width = Math.max(1, container.clientWidth);
       const height = Math.max(1, container.clientHeight);
-      const ratio = Math.min(s.dpr || window.devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, Math.round(width * ratio));
-      canvas.height = Math.max(1, Math.round(height * ratio));
+      const baseRatio = s.dpr || window.devicePixelRatio || 1;
+      const ratio = width < 640 ? Math.min(Math.max(baseRatio, 1.5), 1.75) : Math.min(baseRatio, 2);
+      const maxTex = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096, 4096);
+      canvas.width = clamp(Math.round(width * ratio), 1, maxTex);
+      canvas.height = clamp(Math.round(height * ratio), 1, maxTex);
       render();
       wake();
     };
 
-    const locate = event => {
+    const locate = (event: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
       return { x, y, inside: x >= 0 && y >= 0 && x <= rect.width && y <= rect.height };
     };
 
-    const onPointerMove = event => {
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse' && !pointer.held) return;
       const point = locate(event);
       pointer.x = point.x;
       pointer.y = point.y;
@@ -651,7 +741,7 @@ const Lightfall = ({
       wake();
     };
 
-    const onPointerDown = event => {
+    const onPointerDown = (event: PointerEvent) => {
       const point = locate(event);
       if (!point.inside) return;
       pointer.x = point.x;
@@ -661,8 +751,9 @@ const Lightfall = ({
       wake();
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (event?: PointerEvent) => {
       pointer.held = false;
+      if (event && event.pointerType !== 'mouse') pointer.inside = false;
       wake();
     };
 
@@ -687,6 +778,19 @@ const Lightfall = ({
       }
     });
     intersection.observe(container);
+    const unsubContentVis = onContentVisibilityChange(container, isSkipped => {
+      contentSkipped = isSkipped;
+      if (!isSkipped) {
+        last = 0;
+        wake();
+      }
+    });
+    const unsubReduce = subscribeReducedMotion(matches => {
+      reduce = matches;
+      last = 0;
+      render();
+      wake();
+    });
     window.addEventListener('pointermove', onPointerMove, { passive: true });
     window.addEventListener('pointerdown', onPointerDown, { passive: true });
     window.addEventListener('pointerup', onPointerUp, { passive: true });
@@ -714,6 +818,8 @@ const Lightfall = ({
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
       resizeObserver.disconnect();
       intersection.disconnect();
+      unsubContentVis();
+      unsubReduce();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);
@@ -738,9 +844,12 @@ const Lightfall = ({
   return (
     <div
       ref={containerRef}
+      data-webgl={webglState}
       className={`lightfall-container${className ? ` ${className}` : ''}`}
-      style={{ ...(mixBlendMode ? { mixBlendMode } : null), ...style }}
+      style={{ '--lf-bg': backgroundColor, ...(mixBlendMode ? { mixBlendMode } : null), ...style } as React.CSSProperties}
+      {...rest}
     >
+      <div className="lightfall-fallback" aria-hidden="true" />
       <canvas ref={canvasRef} className="lightfall-canvas" aria-hidden="true" />
     </div>
   );

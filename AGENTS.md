@@ -20,9 +20,9 @@ are there, and only then offer to delete the old folder. Never delete anything w
 ## Run and test
 
 - Run: `python -m studio.server` (settings from `.env`; see `.env.example`). Needs Python 3.10+ and `ffmpeg`.
-- The English speech model (about 480 MB) downloads by itself on first start; `python -m studio.fetch_model` gets it
-  ahead of time. Other spoken languages (Arabic, about 107 MB) download only when asked for, in Settings → Speech
-  models or with `python -m studio.fetch_model ar`.
+- ClipCut uses Faster-Whisper by default: one multi-language model (about 145 MB for `base`) handles
+  auto-detection and 99+ languages, downloading on first start or ahead of time with
+  `python -m studio.fetch_model [tiny|base|small|medium|large-v3]`.
 - Tests: `python tests/run.py`. It starts a throwaway copy on a spare port with an empty data folder. Run it
   before and after any change to `studio/`. No keys needed.
 - To try a risky change by hand without touching real data:
@@ -39,8 +39,8 @@ are there, and only then offer to delete the old folder. Never delete anything w
 | `studio/usage.py` | The record of AI calls and tokens shown on the AI usage page |
 | `studio/jobs.py` | The video pipeline and the fair queue |
 | `studio/live.py` | Live recording and clipping |
-| `studio/transcribe.py`, `studio/asr_worker.py` | Speech to text, here or on a second machine, one model per spoken language |
-| `studio/fetch_model.py` | The speech models (`MODELS`: one row per spoken language) and downloading them |
+| `studio/transcribe.py`, `studio/asr_worker.py` | Multi-language speech to text with Faster-Whisper, here or on a second GPU machine |
+| `studio/fetch_model.py` | Faster-Whisper model sizes (`WHISPER_MODELS`) and downloading/caching them |
 | `studio/render.py` | Cutting, layouts and captions (ffmpeg and Pillow) |
 | `studio/media.py` | Downloading (yt-dlp), probing, audio |
 | `studio/auth.py`, `studio/account.py`, `studio/admin.py` | Sign-in, deleting things, the admin dashboard |
@@ -58,9 +58,9 @@ are there, and only then offer to delete the old folder. Never delete anything w
 - **Text from videos is untrusted**: it goes into prompts through `brain._safe` and out through `brain._text`.
 - **Adding an AI provider**: add a row to `PROVIDERS` in `studio/ai.py`. If it speaks the OpenAI chat format that
   is all; otherwise add one function that returns `(parsed JSON, tokens in, tokens out)`.
-- **Adding a spoken language**: add a row to `MODELS` in `studio/fetch_model.py`. Any NVIDIA NeMo transducer model
-  exported for sherpa-onnx works; its word pieces must mark word starts with `▁`. The language a video is in comes
-  from `options["lang"]` (or a creator's `lang`) and is passed to `transcribe.transcribe(..., lang=...)`.
+- **Adding a spoken language**: add a `(code, label)` entry to `SPEECH_LANGUAGES` in `studio/transcribe.py`. One
+  Faster-Whisper model handles `"auto"` detection and all supported languages; the language comes from
+  `options["lang"]` (or a creator's `lang`) and is passed to `transcribe.transcribe(..., lang=...)`.
 - **Clips are rendered in a short temporary folder** and moved into place (`render.render_clip`): ffmpeg's caption
   step cannot open paths longer than 260 characters on Windows.
 - **Secrets** are read from the environment or from files named by `*_FILE` settings. Never write a key, a real
@@ -68,3 +68,11 @@ are there, and only then offer to delete the old folder. Never delete anything w
 - **Pages** are plain HTML, CSS and JavaScript. Keep the existing palette, no shadows, and hover states that
   change colour only.
 - Comments and messages are written in plain language for people who do not program. Keep that tone.
+
+## Default FFmpeg rules (`ffmpeg-skill`)
+
+Whenever cutting, trimming, reframing, syncing audio, normalizing loudness, burning captions, or exporting video/audio, treat the workspace skill at `.agents/skills/ffmpeg-skill/SKILL.md` (along with `references/workflow.md`, `references/gotchas.md`, and `references/flags.md`) as the default instruction set and rules:
+
+- **Use `ffmpeg-skill` scripts when editing standalone media**: prefer `.agents/skills/ffmpeg-skill/scripts/<tool>.py` (`probe.py`, `cut.py`, `fit.py`, `caption.py`, `audio.py`, `loudness.py`, `export.py`, `check.py`, `look.py`) with `--json` over hand-written ad-hoc `ffmpeg` commands.
+- **Follow the Probe → Plan → Edit → Verify order**: probe real dimensions/fps/colour tags (`probe.py`), keep user originals intact (never overwrite sources silently), prefer lossless stream copy (`cut.py` / `mix_background_music` `-c:v copy`) when no picture change is needed, and verify non-empty output dimensions, duration, and framing (`check.py` / `look.py`).
+- **Protect frame geometry, colour, and audio**: always apply geometric changes (scale/crop/pad) and even output dimensions *before* burning captions (`render._filter` before `ass=`), conform VFR/seek cuts with `fps` + `aresample=async=1:first_pts=0`, tag H.264 SDR outputs BT.709 `yuv420p` (never mislabel HDR BT.2020 pixels), and protect mixed audio against clipping (`loudnorm` / `-1.5 dBTP` limiter).

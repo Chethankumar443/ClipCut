@@ -453,7 +453,7 @@ class Session:
         if not hurry or n > SR * 24:
             # cut at the quietest moment between 4 and 6.5 s, so no word is split; the rest waits for the next pass
             _, cut = next(transcribe._chunks(audio, 4.0, 6.5))
-        words = transcribe.transcribe(audio[:cut], lang=self.job.get("lang") or "en")
+        words = transcribe.transcribe(audio[:cut], lang=self.job.get("lang") or "auto")
         off = base / SR
         for w in words:
             w["s"], w["e"] = round(w["s"] + off, 2), round(w["e"] + off, 2)
@@ -771,7 +771,7 @@ class Session:
         try:
             wav = src.with_suffix(".wav")
             media.extract_audio(src, wav)
-            heard = transcribe.transcribe(media.load_audio(wav), lang=self.job.get("lang") or "en")
+            heard = transcribe.transcribe(media.load_audio(wav), lang=self.job.get("lang") or "auto")
             wav.unlink(missing_ok=True)
             with self.lock:
                 near = [w for w in self.words if guess - 15 <= w["s"] <= guess + dur + 15]
@@ -967,13 +967,11 @@ def start_session(creator: dict, url=None) -> dict:
         raise ValueError(f"You're already recording {len(active_mine())} streams, the most this server allows at once. Stop one first.")
     if len(active()) >= config.MAX_LIVE_TOTAL or (active() and load.busy()):
         raise ValueError("ClipCut is recording as many streams as it can right now. Try again in a little while.")
-    from . import fetch_model, tools
+    from . import tools
     if tools.missing():
         raise ValueError(tools.HELP)
-    lang = creator.get("lang") if fetch_model.known(creator.get("lang")) else fetch_model.DEFAULT
-    if lang != fetch_model.DEFAULT and not transcribe.REMOTE and not fetch_model.ready(lang):
-        raise ValueError(f"This creator speaks {fetch_model.label(lang)}, and its speech model isn't on this computer "
-                         "yet. Add it in Settings → Speech models (an admin can do this), then start recording again.")
+    raw_lang = (creator.get("lang") or "auto").strip().lower()
+    lang = raw_lang if transcribe.known_language(raw_lang) else "auto"
     job = jobs.create({"type": "live", "url": url, "name": f"{creator['name']} live"}, {}, enqueue=False,
                       creator=creator["id"], kind="live")
     job.update(status="live", stage="Connecting to the stream", lang=lang)

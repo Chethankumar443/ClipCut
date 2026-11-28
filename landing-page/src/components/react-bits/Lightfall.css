@@ -5,10 +5,54 @@
   overflow: hidden;
 }
 
+.lightfall-fallback {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+  background:
+    radial-gradient(65% 45% at 50% 6%, color-mix(in srgb, var(--lf-bg, #ff7a2f) 28%, transparent), transparent 72%),
+    radial-gradient(45% 55% at 25% 22%, rgba(255, 176, 122, 0.14), transparent 70%),
+    radial-gradient(45% 55% at 78% 18%, rgba(251, 247, 242, 0.1), transparent 70%);
+  animation: lightfall-pulse 7s ease-in-out infinite alternate;
+}
+
+.lightfall-container[data-webgl="fallback"] .lightfall-fallback,
+.lightfall-container[data-webgl="loading"] .lightfall-fallback {
+  opacity: 1;
+}
+
 .lightfall-canvas {
   position: absolute;
   inset: 0;
   display: block;
   width: 100%;
   height: 100%;
+  transition: opacity 0.3s ease;
+}
+
+.lightfall-container[data-webgl="loading"] .lightfall-canvas {
+  opacity: 0;
+}
+
+.lightfall-container[data-webgl="fallback"] .lightfall-canvas {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@keyframes lightfall-pulse {
+  0% {
+    transform: translate3d(0, -2%, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(0, 2%, 0) scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lightfall-fallback {
+    animation: none;
+  }
 }

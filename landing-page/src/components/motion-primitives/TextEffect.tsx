@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { prefersReducedMotion, subscribeReducedMotion } from "../../lib/modernWeb";
 
 interface TextEffectProps {
   children?: React.ReactNode;
@@ -29,11 +30,28 @@ export function TextEffect({
   as = "h1",
 }: TextEffectProps) {
   const ref = useRef<HTMLElement | null>(null);
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(true);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
+    const reduced = prefersReducedMotion();
+    setReduceMotion(reduced);
+    const unsubReduce = subscribeReducedMotion((matches) => {
+      setReduceMotion(matches);
+      if (matches) setVisible(true);
+    });
+
     const el = ref.current;
-    if (!el) return;
+    if (!el || reduced || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return unsubReduce;
+    }
+    const rect = el.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 0.95) {
+      setVisible(true);
+      return unsubReduce;
+    }
+    setVisible(false);
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -41,10 +59,13 @@ export function TextEffect({
           obs.disconnect();
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.05 }
     );
     obs.observe(el);
-    return () => obs.disconnect();
+    return () => {
+      obs.disconnect();
+      unsubReduce();
+    };
   }, []);
 
   const Tag = as as React.ElementType;
@@ -57,12 +78,13 @@ export function TextEffect({
         <span
           key={i}
           aria-hidden="true"
-          className="inline-block transition-all duration-700 ease-out"
+          className="inline-block transition-all duration-500 ease-out"
           style={{
-            transitionDelay: `${i * delay}ms`,
+            transitionDelay: reduceMotion ? "0ms" : `${i * Math.min(delay, 35)}ms`,
+            transitionDuration: reduceMotion ? "150ms" : undefined,
             opacity: visible ? 1 : 0,
-            filter: visible ? "blur(0px)" : "blur(8px)",
-            transform: visible ? "translateY(0px)" : "translateY(16px)",
+            filter: reduceMotion || visible ? "blur(0px)" : "blur(4px)",
+            transform: reduceMotion || visible ? "translateY(0px)" : "translateY(10px)",
           }}
         >
           {seg === " " ? "\u00A0" : seg}

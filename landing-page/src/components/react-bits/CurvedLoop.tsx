@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { onContentVisibilityChange, prefersReducedMotion, subscribeReducedMotion } from '../../lib/modernWeb';
 import './CurvedLoop.css';
 
 const VIEW_WIDTH = 1440;
@@ -12,11 +13,11 @@ const TAU = Math.PI * 2;
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
-const wrapOffset = (value, length) => (length > 0 ? (((value % length) + length) % length) - length : value);
+const wrapOffset = (value: number, length: number) => (length > 0 ? (((value % length) + length) % length) - length : value);
 
-const wrapAngle = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
+const wrapAngle = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
 
-const edgeMask = (amount, span) => {
+const edgeMask = (amount: number, span: number) => {
   const size = Math.min(Math.max(amount, 0), 1) * 50 * span;
   if (size <= 0) return undefined;
   const start = 50 - span * 50;
@@ -32,15 +33,15 @@ const edgeMask = (amount, span) => {
   return `linear-gradient(to right, ${[...left, ...right].join(', ')})`;
 };
 
-const wavePath = (amplitude, baseline) => {
+const wavePath = (amplitude: number, baseline: number) => {
   const from = -100;
   const to = VIEW_WIDTH + 100;
   const k = TAU / WAVE_LENGTH;
-  const y = x => baseline + amplitude * Math.cos(k * (x - VIEW_WIDTH / 2));
-  const slope = x => -amplitude * k * Math.sin(k * (x - VIEW_WIDTH / 2));
+  const y = (x: number) => baseline + amplitude * Math.cos(k * (x - VIEW_WIDTH / 2));
+  const slope = (x: number) => -amplitude * k * Math.sin(k * (x - VIEW_WIDTH / 2));
   const count = Math.ceil((to - from) / (WAVE_LENGTH / 8));
   const step = (to - from) / count;
-  const f = n => n.toFixed(2);
+  const f = (n: number) => n.toFixed(2);
   let d = `M${f(from)},${f(y(from))}`;
   for (let i = 0; i < count; i++) {
     const x0 = from + i * step;
@@ -50,7 +51,7 @@ const wavePath = (amplitude, baseline) => {
   return d;
 };
 
-const getGeometry = (shape, curveAmount, fontSize, spacing) => {
+const getGeometry = (shape: string, curveAmount: number, fontSize: number, spacing: number) => {
   if (shape === 'circle') {
     const repeats = spacing > 0 ? Math.max(1, Math.round((TAU * fontSize * RING_RADIUS) / spacing)) : 1;
     const radius = spacing > 0 ? (repeats * spacing) / TAU : fontSize * RING_RADIUS;
@@ -67,13 +68,33 @@ const getGeometry = (shape, curveAmount, fontSize, spacing) => {
   const baseline = VIEW_HEIGHT / 2 + fontSize * 0.36;
   if (shape === 'line') return { ...flat, d: `M-100,${baseline} L${VIEW_WIDTH + 100},${baseline}` };
   if (shape === 'wave') return { ...flat, d: wavePath(curveAmount * 0.25, baseline) };
-  return { ...flat, d: `M-100,40 Q500,${40 + curveAmount} 1540,40` };
+  return { ...flat, d: `M-100,28 Q${VIEW_WIDTH / 2},${28 + curveAmount} ${VIEW_WIDTH + 100},28` };
 };
+
+export interface CurvedLoopProps {
+  marqueeText?: string;
+  speed?: number;
+  className?: string;
+  curveAmount?: number;
+  direction?: 'left' | 'right';
+  interactive?: boolean;
+  pauseOnHover?: boolean;
+  color?: string;
+  edgeFade?: number;
+  shape?: 'arc' | 'line' | 'wave' | 'circle';
+  fontSize?: number;
+  fontWeight?: number | string;
+  letterSpacing?: number | string;
+  outline?: boolean;
+  separator?: string;
+  separatorColor?: string;
+  scrollBoost?: number;
+}
 
 const CurvedLoop = ({
   marqueeText = '',
   speed = 2,
-  className,
+  className = '',
   curveAmount = 400,
   direction = 'left',
   interactive = true,
@@ -88,27 +109,31 @@ const CurvedLoop = ({
   separator = '',
   separatorColor,
   scrollBoost = 0
-}) => {
+}: CurvedLoopProps) => {
   const body = useMemo(() => marqueeText.replace(/\s+$/, ''), [marqueeText]);
   const mark = String(separator ?? '').trim();
   const text = mark ? `${body}\u00A0${mark}\u00A0` : `${body}\u00A0`;
   const pathId = `curve-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
-  const jacketRef = useRef(null);
-  const svgRef = useRef(null);
-  const measureRef = useRef(null);
-  const pathRef = useRef(null);
-  const textPathsRef = useRef([]);
+  const jacketRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const measureRef = useRef<SVGTextElement>(null);
+  const pathRef = useRef<SVGPathElement>(null);
+  const textPathsRef = useRef<SVGTextPathElement[]>([]);
 
   const [spacing, setSpacing] = useState(0);
   const [pathLength, setPathLength] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [paused, setPaused] = useState(false);
 
   const spacingRef = useRef(0);
   const offsetRef = useRef(0);
   const velocityRef = useRef(0);
   const directionRef = useRef(direction);
   const hoverRef = useRef(false);
+  const pausedRef = useRef(false);
+  const reduceMotionRef = useRef(false);
+  const wakeRef = useRef<(() => void) | null>(null);
   const settingsRef = useRef({ speed, pauseOnHover, scrollBoost });
   const scrollRef = useRef({ distance: 0, level: 0 });
   const dragRef = useRef({
@@ -133,10 +158,17 @@ const CurvedLoop = ({
   const maskId = `${pathId}-outline`;
   const accent = Boolean(mark && separatorColor);
   const plain = text.repeat(copies);
-  const repeat = markProps =>
+  const parts = mark ? body.split(mark) : [body];
+  const repeat = (markProps: Record<string, string | undefined>) =>
     Array.from({ length: copies }, (_, i) => (
       <Fragment key={i}>
-        {`${body}\u00A0`}
+        {parts.map((chunk, pIdx) => (
+          <Fragment key={pIdx}>
+            {chunk}
+            {pIdx < parts.length - 1 && <tspan {...markProps}>{mark}</tspan>}
+          </Fragment>
+        ))}
+        {'\u00A0'}
         <tspan {...markProps}>{mark}</tspan>
         {'\u00A0'}
       </Fragment>
@@ -191,10 +223,10 @@ const CurvedLoop = ({
 
   useEffect(() => {
     if (!scrollBoost) return undefined;
-    const positions = new Map([[window, window.scrollY]]);
-    const onScroll = event => {
+    const positions = new Map<Window | Element, number>([[window, window.scrollY]]);
+    const onScroll = (event: Event) => {
       const target = event.target instanceof Element ? event.target : window;
-      if (target instanceof Element && !target.contains(jacketRef.current)) return;
+      if (target instanceof Element && jacketRef.current && !target.contains(jacketRef.current)) return;
       const position = target instanceof Element ? target.scrollTop : window.scrollY;
       const previous = positions.get(target);
       positions.set(target, position);
@@ -205,25 +237,40 @@ const CurvedLoop = ({
   }, [scrollBoost]);
 
   useEffect(() => {
+    pausedRef.current = paused;
+    if (!paused) wakeRef.current?.();
+  }, [paused]);
+
+  useEffect(() => {
     if (!ready) return;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    reduceMotionRef.current = prefersReducedMotion();
     let frame = 0;
     let last = 0;
     let visible = true;
+    let skipped = false;
 
-    const tick = now => {
+    const wake = () => {
+      if (!frame && visible && !skipped && !document.hidden) {
+        last = 0;
+        frame = requestAnimationFrame(tick);
+      }
+    };
+    wakeRef.current = wake;
+
+    const tick = (now: number) => {
       frame = 0;
-      if (!visible) return;
+      if (!visible || skipped || document.hidden) return;
       const dt = last ? Math.min((now - last) / 1000, 0.05) : 0;
       last = now;
       const scroll = scrollRef.current;
       const rate = dt > 0 ? scroll.distance / dt : 0;
       scroll.distance = 0;
       scroll.level += (rate - scroll.level) * (1 - Math.exp(-dt * (rate > scroll.level ? 10 : 2.4)));
+      let activeMotion = dragRef.current.active || Math.abs(scroll.level) > 0.5;
       if (!dragRef.current.active) {
         const { speed: base, pauseOnHover: pause, scrollBoost: boost } = settingsRef.current;
         const sign = directionRef.current === 'right' ? 1 : -1;
-        const halted = reduceMotion || (pause && hoverRef.current);
+        const halted = reduceMotionRef.current || pausedRef.current || (pause && hoverRef.current);
         const target = halted ? 0 : sign * base * 60;
         const extra = halted ? 0 : sign * scroll.level * boost * 0.3;
         velocityRef.current += (target - velocityRef.current) * (1 - Math.exp(-dt * 3));
@@ -232,32 +279,52 @@ const CurvedLoop = ({
           offsetRef.current = wrapOffset(offsetRef.current + step, spacingRef.current);
           for (const node of textPathsRef.current) node.setAttribute('startOffset', `${offsetRef.current}px`);
         }
+        activeMotion = !halted || Math.abs(velocityRef.current) > 0.05 || Math.abs(extra) > 0.05;
       }
-      frame = requestAnimationFrame(tick);
+      if (activeMotion) {
+        frame = requestAnimationFrame(tick);
+      } else {
+        last = 0;
+      }
     };
 
     const observer =
       typeof IntersectionObserver !== 'undefined'
         ? new IntersectionObserver(([entry]) => {
             visible = entry.isIntersecting;
-            if (visible && !frame) {
-              last = 0;
+            if (visible) {
               scrollRef.current.level = 0;
-              frame = requestAnimationFrame(tick);
+              wake();
             }
           })
         : null;
     if (observer && jacketRef.current) observer.observe(jacketRef.current);
-    frame = requestAnimationFrame(tick);
+    const unsubContentVis = onContentVisibilityChange(jacketRef.current, isSkipped => {
+      skipped = isSkipped;
+      if (!isSkipped) wake();
+    });
+    const unsubReduce = subscribeReducedMotion(matches => {
+      reduceMotionRef.current = matches;
+      wake();
+    });
+    const onVisibility = () => {
+      if (!document.hidden) wake();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    wake();
 
     return () => {
       cancelAnimationFrame(frame);
+      wakeRef.current = null;
       observer?.disconnect();
+      unsubContentVis();
+      unsubReduce();
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [ready]);
 
-  const onPointerDown = e => {
-    if (!interactive || !ready) return;
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!interactive || !ready || (e.target instanceof Element && e.target.closest('[data-marquee-control]'))) return;
     const rect = svgRef.current?.getBoundingClientRect();
     const width = rect?.width || VIEW_WIDTH;
     const cx = rect ? rect.left + rect.width / 2 : e.clientX;
@@ -279,7 +346,7 @@ const CurvedLoop = ({
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
 
-  const onPointerMove = e => {
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag.active) return;
     const now = performance.now();
@@ -333,6 +400,27 @@ const CurvedLoop = ({
       }}
       onPointerLeave={onPointerLeave}
     >
+      {speed !== 0 && (
+        <button
+          type="button"
+          data-marquee-control=""
+          className="curved-loop-toggle"
+          aria-pressed={paused}
+          aria-label={paused ? 'Resume marquee animation' : 'Pause marquee animation'}
+          onClick={() => setPaused(p => !p)}
+        >
+          {paused ? (
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <path d="M3 2.2v7.6L9.5 6 3 2.2z" />
+            </svg>
+          ) : (
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="2.5" y="2.2" width="2.5" height="7.6" rx="0.6" />
+              <rect x="7" y="2.2" width="2.5" height="7.6" rx="0.6" />
+            </svg>
+          )}
+        </button>
+      )}
       <svg
         ref={svgRef}
         className="curved-loop-svg"

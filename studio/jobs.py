@@ -110,7 +110,7 @@ on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first f
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "aspect": "9:16", "quality": 720,
             "range_start": None, "range_end": None, "captions": True, "hook_text": "", "description_text": "",
-            "lang": "en"}   # lang: the language spoken
+            "lang": "auto"}   # lang: spoken language ("auto" lets Faster-Whisper detect it per video)
 
 
 LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080)}
@@ -806,14 +806,16 @@ def _run_job(job):
         _set(job, status="running", stage="Getting the audio", progress=0.03, error=None, clips=[], ai={}, done_blocks=0)
     speech_cfg = transcribe.speech_settings()
     speech = (o.get("lang") or speech_cfg.get("language") or "auto").strip().lower()
-    use_sherpa = speech_cfg.get("engine") != "faster-whisper" and speech != "auto" and fetch_model.known(speech)
-    if use_sherpa and speech == fetch_model.DEFAULT and not transcribe.model_ready() and not transcribe.REMOTE:
-        _set(job, stage="Getting the speech model (one time, about 480 MB)")
-        fetch_model.ensure()
-        _set(job, stage="Getting the audio")
     could_borrow = src["type"] == "url" and config.YT_TRANSCRIPT and media.is_youtube(src["url"])
-    if use_sherpa and speech != fetch_model.DEFAULT and not transcribe.REMOTE and not could_borrow and fetch_model.status(speech) == "missing":
-        fetch_model.ensure(speech, start=False)      # says what to do, before any time is spent on the download
+    if (
+        not could_borrow
+        and not transcribe.REMOTE
+        and config.env("CLIPCUT_FETCH_MODEL", "1") != "0"
+        and not fetch_model.ready(speech_cfg["whisper_model"])
+    ):
+        _set(job, stage=f"Getting the speech model (Faster-Whisper {speech_cfg['whisper_model']})")
+        fetch_model.ensure(speech_cfg["whisper_model"])
+        _set(job, stage="Getting the audio")
     fetch = ThreadPoolExecutor(1)
     video = None
     heatmap_sec = None
@@ -937,14 +939,9 @@ def _run_job(job):
         job["transcript_from"] = "youtube" if yt else "own"
     # The language spoken decides the captions: YouTube's word for it when its transcript is used, else the choice made.
     job["lang"] = yt[1] if yt else speech
-    # A clip found with YouTube's transcript gets its on-screen words from our own model, when there is one here
-    # for the language YouTube says was spoken (English always; others once they are downloaded).
+    # A clip found with YouTube's transcript gets its on-screen words aligned by Faster-Whisper (multi-language).
     yt_code = (yt[1].lower().split("-")[0] if yt else "")
-    yt_model = yt_code if fetch_model.known(yt_code) and (yt_code == fetch_model.DEFAULT or fetch_model.ready(yt_code)) else ""
-    if not yt and speech != fetch_model.DEFAULT and not transcribe.REMOTE and not fetch_model.ready(speech):
-        if fetch_model.state[speech]["doing"]:
-            _set(job, stage=f"Waiting for the {fetch_model.label(speech)} speech model to finish downloading")
-        fetch_model.ensure(speech, start=False)      # waits for a download already running, else says what to do
+    yt_model = (yt_code if transcribe.known_language(yt_code) else "auto") if yt else ""
     if resuming:
         try:
             words = json.loads((d / "words.json").read_text(encoding="utf-8"))

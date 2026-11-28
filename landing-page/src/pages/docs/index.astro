@@ -22,8 +22,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     </li>
     <li>
       <strong>Transcription:</strong> Pulls existing captions via <code>youtube-transcript-api</code>{" "}
-      or <code>yt-dlp</code> first, falling back to local <code>sherpa-onnx</code> (Parakeet 0.6b)
-      or <code>faster-whisper</code>.
+      or <code>yt-dlp</code> first, falling back to multi-language <code>faster-whisper</code>.
     </li>
     <li>
       <strong>Moment Detection &amp; Scoring:</strong> Tags vocal energy peaks with{" "}
@@ -42,7 +41,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     <li><code>studio/server.py</code> — FastAPI routes, auth/rate-limit middleware, media streaming</li>
     <li><code>studio/jobs.py</code> — Fair multi-user job queue and video pipeline orchestration</li>
     <li><code>studio/media.py</code> — <code>yt-dlp</code> ingestion, audio probing, and replay heatmaps</li>
-    <li><code>studio/transcribe.py</code> — Hybrid ASR (<code>sherpa-onnx</code>, GPU worker, <code>faster-whisper</code>)</li>
+    <li><code>studio/transcribe.py</code> — Multi-language ASR (<code>faster-whisper</code>, optional GPU worker)</li>
     <li><code>studio/brain.py</code> — Hook scoring prompts, gaming rules, and feedback personalization</li>
     <li><code>studio/render.py</code> — FFmpeg cutting, layouts, ASS captions, and BGM mixing</li>
     <li><code>web/index.html</code> — Single-file zero-build studio web application</li>

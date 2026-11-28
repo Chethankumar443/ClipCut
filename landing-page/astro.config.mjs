@@ -9,7 +9,7 @@ const siteUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
   ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
   : process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
-    : process.env.SITE_URL || 'https://clipcut.vercel.app';
+    : process.env.SITE_URL || 'https://clip-cut-alpha.vercel.app';
 
 export default defineConfig({
   site: siteUrl,

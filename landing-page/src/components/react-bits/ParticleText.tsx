@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { onContentVisibilityChange, prefersReducedMotion, subscribeReducedMotion } from "../../lib/modernWeb";
 
 interface ParticleTextProps {
   text?: string;
@@ -52,7 +53,12 @@ export default function ParticleText({
     if (!ctx) return;
 
     let raf = 0;
+    let visible = true;
+    let skipped = false;
+    let reduceMotion = prefersReducedMotion();
     let particles: Particle[] = [];
+    let viewWidth = 300;
+    let viewHeight = 96;
     const startTime = performance.now();
 
     const buildParticles = () => {
@@ -60,6 +66,8 @@ export default function ParticleText({
       const rect = canvas.getBoundingClientRect();
       const width = Math.max(rect.width, 300);
       const height = Math.max(rect.height, 96);
+      viewWidth = width;
+      viewHeight = height;
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -113,12 +121,31 @@ export default function ParticleText({
       particles = next;
     };
 
-    buildParticles();
-    window.addEventListener("resize", buildParticles);
+    const drawStatic = () => {
+      ctx.clearRect(0, 0, viewWidth, viewHeight);
+      ctx.fillStyle = color;
+      const r = particleSize * 0.55;
+      ctx.beginPath();
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x = p.tx;
+        p.y = p.ty;
+        p.vx = 0;
+        p.vy = 0;
+        ctx.moveTo(p.tx + r, p.ty);
+        ctx.arc(p.tx, p.ty, r, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    };
 
     const render = (now: number) => {
-      const rect = canvas.getBoundingClientRect();
-      ctx.clearRect(0, 0, rect.width, rect.height);
+      raf = 0;
+      if (!visible || skipped || document.hidden) return;
+      if (reduceMotion) {
+        drawStatic();
+        return;
+      }
+      ctx.clearRect(0, 0, viewWidth, viewHeight);
       const elapsed = now - startTime;
       const ptr = pointerRef.current;
 
@@ -166,11 +193,54 @@ export default function ParticleText({
       raf = requestAnimationFrame(render);
     };
 
-    raf = requestAnimationFrame(render);
+    const wake = () => {
+      if (reduceMotion) {
+        if (visible && !skipped) drawStatic();
+        return;
+      }
+      if (!raf && visible && !skipped && !document.hidden) raf = requestAnimationFrame(render);
+    };
+
+    buildParticles();
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            buildParticles();
+            wake();
+          })
+        : null;
+    ro?.observe(canvas);
+    const observer =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver((entries) => {
+            visible = entries.some((entry) => entry.isIntersecting);
+            if (visible) wake();
+          })
+        : null;
+    observer?.observe(canvas);
+    const unsubContentVis = onContentVisibilityChange(canvas, (isSkipped) => {
+      skipped = isSkipped;
+      if (!isSkipped) wake();
+    });
+    const unsubReduce = subscribeReducedMotion((matches) => {
+      reduceMotion = matches;
+      if (matches && raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+      wake();
+    });
+    document.addEventListener("visibilitychange", wake);
+    wake();
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", buildParticles);
+      ro?.disconnect();
+      observer?.disconnect();
+      unsubContentVis();
+      unsubReduce();
+      document.removeEventListener("visibilitychange", wake);
     };
   }, [text, particleSize, density, color, highlightColor, scatter, gatherDuration, repelRadius, pointerRepel, idleDrift]);
 
